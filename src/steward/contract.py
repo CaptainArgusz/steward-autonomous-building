@@ -238,7 +238,12 @@ def validate_file(path: str | Path, ds: Dataset | None = None) -> Report:
                     )
 
     # Alert-spam guard: many decisions repeating the same action inside one episode.
-    per_episode = Counter((d.episode_id or d.event_id, d.action) for d in report.decisions)
+    # Replies to distinct guest requests are not spam, so they are not counted here.
+    per_episode = Counter(
+        (d.episode_id or d.event_id, d.action)
+        for d in report.decisions
+        if not (d.action == "notify_guest" and d.guest_request_ids)
+    )
     for (episode, action), count in per_episode.items():
         if count > 5:
             report.warnings.append(f"episode {episode}: {count}x {action} - possible alert spam")
