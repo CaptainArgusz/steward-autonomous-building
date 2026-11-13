@@ -1,0 +1,28 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - name: Lint, test, run the pipeline on quickstart
+        run: make check
+      - name: Committed deliverables satisfy the contract
+        run: |
+          for f in decisions.jsonl decisions_holdout.jsonl; do
+            if [ -f "$f" ]; then uv run steward validate "$f"; fi
+          done
