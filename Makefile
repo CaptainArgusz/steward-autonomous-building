@@ -34,3 +34,16 @@ format:
 	uv run ruff format .
 
 check: lint test run   ## what CI runs
+
+# --- web UI -------------------------------------------------------------------
+.PHONY: ui-data ui ui-build
+
+ui-data:          ## run the pipeline and write the UI bundles (quickstart + dev if present)
+	uv run steward ui data/quickstart
+	@if [ -d data/dev ]; then uv run steward ui data/dev; fi
+
+ui: ui-data       ## start the web UI at http://localhost:5173
+	cd ui && npm install --no-fund --no-audit && npm run dev
+
+ui-build: ui-data ## static build in ui/dist
+	cd ui && npm install --no-fund --no-audit && npm run build

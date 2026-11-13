@@ -38,3 +38,7 @@ node_modules/
 
 # --- Local AI-tool state ---
 .claude/settings.local.json
+
+# --- UI build output and generated data bundles ---
+ui/dist/
+ui/public/data/

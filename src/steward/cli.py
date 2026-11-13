@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
-from steward import pipeline
+from steward import export, pipeline
 from steward.contract import validate_file
 from steward.dataset import Dataset, DatasetError
 from steward.detectors import DETECTORS
@@ -52,6 +53,26 @@ def _cmd_validate(args: argparse.Namespace) -> int:
     return 0 if report.ok else 1
 
 
+def _cmd_ui(args: argparse.Namespace) -> int:
+    """Run the pipeline and write the JSON bundle the web UI reads."""
+    ds = Dataset(args.data_dir)
+    work = Path("out") / ds.profile
+    decisions, trail = work / "decisions.jsonl", work / "action_trail.jsonl"
+    pipeline.run(args.data_dir, out=decisions, trail=trail)
+    bundle = export.build(
+        args.data_dir,
+        decisions,
+        dismissed_path=work / "dismissed.jsonl",
+        insights_path=args.insights,
+    )
+    out = Path(args.out or f"ui/public/data/{ds.profile}.json")
+    export.write(bundle, out)
+    print(
+        f"steward: wrote UI bundle {out} ({out.stat().st_size / 1e6:.1f} MB, {len(bundle['episodes'])} incidents)"
+    )
+    return 0
+
+
 def _cmd_info(args: argparse.Namespace) -> int:
     ds = Dataset(args.data_dir)
     print(
@@ -90,6 +111,12 @@ def main(argv: list[str] | None = None) -> int:
         "--data-dir", help="also check asset IDs, resources and requests against this dataset"
     )
     validate.set_defaults(func=_cmd_validate)
+
+    ui = sub.add_parser("ui", help="run the pipeline and write the data bundle for the web UI")
+    ui.add_argument("data_dir")
+    ui.add_argument("--out", help="bundle path (default: ui/public/data/<profile>.json)")
+    ui.add_argument("--insights", default="insights.jsonl", help="insights file to include")
+    ui.set_defaults(func=_cmd_ui)
 
     info = sub.add_parser("info", help="summarise a dataset")
     info.add_argument("data_dir")
