@@ -3,6 +3,7 @@ import pytest
 
 from steward.detectors.turnaround import (
     Cleaner,
+    Slot,
     Task,
     _Replay,
     detect,
@@ -55,7 +56,7 @@ def test_capacity_is_never_invented():
     crew = [Cleaner("CLEANER_1", ts("12:00"), ts("14:00"))]
     slots = plan_queue(tasks, crew, 60, 45)
     done = [s for s in slots.values() if s.end is not None]
-    assert len(done) == 2  # two 60-min cleanings start before the shift ends at 14:00
+    assert len(done) == 2  # two 60-min cleanings finish by the shift end at 14:00
     assert sum(s.end is None for s in slots.values()) == 3
     assert plan_queue(tasks, [], 60, 45)["R101"].end is None
 
@@ -64,6 +65,18 @@ def test_cleaning_must_finish_before_shift_end():
     tasks = [Task("R101", ts("13:45"), ts("15:00"), None)]
     crew = [Cleaner("CLEANER_1", ts("13:45"), ts("14:00"))]
     assert plan_queue(tasks, crew, 60, 45)["R101"].end is None
+
+
+def test_later_shorter_cleaning_can_still_finish_before_shift_end():
+    tasks = [
+        Task("R101", ts("13:00"), ts("14:00"), None),
+        Task("R102", ts("13:10"), ts("14:00"), ts("13:00")),
+    ]
+    crew = [Cleaner("CLEANER_1", ts("13:05"), ts("14:00"))]
+    slots = plan_queue(tasks, crew, 60, 45)
+    assert slots["R101"].end is None
+    assert slots["R102"].start == ts("13:10")
+    assert slots["R102"].end == ts("13:55")
 
 
 def test_robot_dispatch_requires_a_free_robot_for_the_whole_job(ds):
@@ -132,6 +145,31 @@ def test_no_absent_or_off_shift_staff_is_assigned(ds, decisions):
             at = pd.Timestamp(d.timestamp_utc)
             assert ds.known_absence(d.resource_id, at) is None
             assert ds.on_shift(d.resource_id, at)
+
+
+def test_robot_is_not_dispatched_to_an_occupied_room(ds, monkeypatch):
+    replay = _Replay(ds)
+    rid = ds.room_ids[0]
+    at = ds.start + pd.Timedelta(hours=1)
+    replay.rooms[rid].occupied = True
+    monkeypatch.setattr(replay, "robot_on_shift", lambda _at: "ROBOT_1")
+    slot = Slot(at, at + pd.Timedelta(hours=1), None)
+    replay.conflict(
+        at=at,
+        rid=rid,
+        day=replay.day_of(at),
+        need=at + pd.Timedelta(hours=2),
+        eta=at + pd.Timedelta(hours=1),
+        slot=slot,
+        booking=None,
+        language=None,
+        request_id=None,
+        absent=[],
+        why="Regression test.",
+        fifo_eta=None,
+    )
+    assert slot.end is not None
+    assert not any(d.action == "dispatch_robot" for d in replay.decisions)
 
 
 def test_early_checkin_conflict_is_raised_before_the_guest_arrives(ds, decisions):

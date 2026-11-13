@@ -163,6 +163,16 @@ def plan_queue(
                 task, end = candidate, candidate_end
                 break
         if task is None:
+            # A room becoming available later can still be the better use of the
+            # remaining shift (for example, after a completed robot pre-clean).
+            # Advance to that release time before concluding this cleaner has no
+            # feasible work left.
+            future = [
+                candidate.available for candidate in pending if candidate.available > c.free_at
+            ]
+            if future:
+                c.free_at = min(future)
+                continue
             crew.pop(0)
             continue
         start = c.free_at
