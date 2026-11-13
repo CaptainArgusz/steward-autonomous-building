@@ -31,6 +31,7 @@ def run(
     instead and is what tests and CI use.
     """
     ds = Dataset(data_dir)
+    ds.__dict__["_disable_weekend_coordination"] = bool(only and "occupancy_surge" not in only)
     audit.drain()  # start clean when run() is called more than once in a process
     _log(f"steward: {ds.profile} dataset at {ds.root} ({ds.start:%Y-%m-%d} to {ds.end:%Y-%m-%d})")
 

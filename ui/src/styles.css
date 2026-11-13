@@ -8,11 +8,13 @@
   --text-2: #52514e;
   --text-3: #85837d;
   --accent: #2a78d6;
-  /* issue types: categorical slots 1-4, fixed order */
+  /* issue types */
   --water: #2a78d6;
   --heat: #eb6834;
   --turn: #1baf7a;
   --logi: #eda100;
+  --vent: #7958bd;
+  --surge: #b04d83;
   --other: #85837d;
   /* status */
   --good: #0ca30c;
@@ -97,6 +99,8 @@ main { display: grid; grid-template-columns: minmax(420px, 5fr) minmax(420px, 6f
 .t-heating_comfort { background: var(--heat); }
 .t-room_turnaround { background: var(--turn); }
 .t-logistics { background: var(--logi); }
+.t-ventilation_maintenance { background: var(--vent); }
+.t-occupancy_surge { background: var(--surge); }
 .t-other { background: var(--other); }
 .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
 .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--text-2); margin-top: 6px; }

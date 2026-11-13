@@ -77,6 +77,12 @@ data dir ─► Dataset ─► detectors ─► Decision[] ─► decisions.json
   time order and may only use information that was available at the decision's timestamp
   (forecast issue time, tariff publication time, booking creation time, when a roster change
   became known).
+- S04 compares sustained AHU filter pressure with fan and airflow readings, and treats
+  floor-wide missing room sensors as a separate gateway data gap. Service is proposed for
+  approval, never assumed completed.
+- S05 uses the same room replay and capacity queue as S01 to identify weekend arrival
+  shortfalls after a known cleaner absence. It proposes one coordination plan, a request
+  for extra capacity and conditional guest updates without counting on-call help in advance.
 - **`steward.contract`** defines the `Decision` model after `DECISION_CONTRACT.md`. It rejects
   decisions that break the autonomy rules — for example `dispatch_technician` or `block_room`
   without `requires_human_approval`, or guest consent without approval — and derives the
@@ -98,6 +104,8 @@ No environment variables are required. [.env.example](.env.example) lists option
 
 - The data is an offline replay: no action changes later observations, so we cannot observe
   whether an action worked. Each decision instead carries a `verification_plan`.
+- Guest replies can still miss their recorded response deadlines; the general first-response
+  workflow is pending. The mock executor does not yet enforce action dependencies.
 - There is no ground truth in the participant data. Detection quality is argued from evidence.
 - A booking becomes known at `created_utc`. The final `cancelled` status has no timestamp,
   so replay planning does not use it to remove expected arrivals. Overlapping known bookings

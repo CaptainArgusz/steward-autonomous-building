@@ -44,7 +44,17 @@ def truncated(ds, cut):
     return short
 
 
-@pytest.mark.parametrize("name", ["room_turnaround", "water_leak", "heating_comfort", "logistics"])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "room_turnaround",
+        "water_leak",
+        "heating_comfort",
+        "ventilation_maintenance",
+        "occupancy_surge",
+        "logistics",
+    ],
+)
 @pytest.mark.parametrize("fraction", [0.45, 0.7])
 def test_decisions_before_a_cutoff_do_not_change_when_the_future_is_removed(ds, name, fraction):
     cut = (ds.start + (ds.end - ds.start) * fraction).floor("15min")

@@ -2,6 +2,8 @@ export const ISSUES = {
   room_turnaround: { label: "Checkout conflict", cls: "t-room_turnaround", color: "var(--turn)" },
   water_leak: { label: "Water leak", cls: "t-water_leak", color: "var(--water)" },
   heating_comfort: { label: "Heating / comfort", cls: "t-heating_comfort", color: "var(--heat)" },
+  ventilation_maintenance: { label: "Ventilation / sensors", cls: "t-ventilation_maintenance", color: "var(--vent)" },
+  occupancy_surge: { label: "Weekend capacity", cls: "t-occupancy_surge", color: "var(--surge)" },
   logistics: { label: "Logistics", cls: "t-logistics", color: "var(--logi)" },
 };
 export const issue = (t) => ISSUES[t] || { label: t.replaceAll("_", " "), cls: "t-other", color: "var(--other)" };

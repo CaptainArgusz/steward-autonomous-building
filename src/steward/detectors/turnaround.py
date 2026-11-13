@@ -1073,12 +1073,12 @@ class _Replay:
                     (self.stats.clean_robot if assisted else self.stats.clean).append(minutes)
             self.rooms[rid] = Room()
 
-    def run(self) -> list[Decision]:
+    def run(self, weekend_callback=None) -> list[Decision]:
         ds = self.ds
         self._heap: list = []
         self._seq = 0
         # At one timestamp: state first, then requests, then our own checks.
-        self._order = {"event": 0, "request": 1, "watch": 2, "plan": 3}
+        self._order = {"event": 0, "request": 1, "watch": 2, "weekend": 3, "plan": 4}
 
         first = ds.room_telemetry.sort_values("timestamp_utc").drop_duplicates("room_id")
         for r in first.itertuples():
@@ -1099,6 +1099,16 @@ class _Replay:
             at = self.at_local(day.date(), (PLAN_HOUR_LOCAL, 0))
             if ds.start <= at < ds.end:
                 self.schedule(at, "plan", None)
+                if weekend_callback and day.weekday() >= 5:
+                    self.schedule(at, "weekend", day.date())
+        if weekend_callback:
+            roster = ds.staff_roster
+            for r in roster[
+                (roster["role"] == "cleaner") & (roster["status"] != "scheduled")
+            ].itertuples():
+                day = r.start_utc.tz_convert(self.tz).date()
+                if day.weekday() >= 5 and ds.start <= r.status_known_utc < ds.end:
+                    self.schedule(r.status_known_utc, "weekend", day)
 
         while self._heap:
             value, _, _, kind, payload = heapq.heappop(self._heap)
@@ -1117,14 +1127,25 @@ class _Replay:
                     self.on_late_checkout(payload)
                 else:
                     self.on_waiting(t, payload.room_id, payload.booking_id, payload)
+                if weekend_callback and payload.booking_id in self.bookings.index:
+                    day = self.bookings.at[payload.booking_id, "arr_day"]
+                    if day.weekday() >= 5 and t <= self.at_local(day, self.checkin_hm):
+                        weekend_callback(self, t, day)
             elif kind == "watch":
                 self.on_watch(t, payload)
+            elif kind == "weekend":
+                weekend_callback(self, t, payload)
             elif kind == "plan":
                 self.on_day_plan(t)
         return self.decisions
 
 
 def detect(ds: Dataset) -> list[Decision]:
-    decisions = _Replay(ds).run()
+    if ds.__dict__.get("_disable_weekend_coordination"):
+        decisions = _Replay(ds).run()
+    else:
+        from steward.detectors.occupancy_surge import coordinated_replay
+
+        decisions = coordinated_replay(ds)[0]
     assert not any(math.isnan(d.confidence or 0.0) for d in decisions)
     return decisions
