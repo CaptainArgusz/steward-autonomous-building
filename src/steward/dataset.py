@@ -201,6 +201,61 @@ class Dataset:
         df["timestamp_utc"] = pd.to_datetime(df["timestamp_utc"], utc=True, format="ISO8601")
         return df
 
+    # ----------------------------------------------------------------- occupancy
+
+    _CHECKIN_TYPES = ("stay_in_progress", "checkin", "checkin_early", "checkin_after_wait")
+    _CHECKOUT_TYPES = ("checkout", "checkout_early")
+
+    @cached_property
+    def lifecycle(self) -> pd.DataFrame:
+        """Actual check-in / check-out moments per room, time-ordered, with ``occupied`` after each."""
+        ev = self.events
+        lc = ev[ev["type"].isin(self._CHECKIN_TYPES + self._CHECKOUT_TYPES)]
+        lc = lc[["timestamp_utc", "room_id", "booking_id", "type", "guests"]].copy()
+        lc["occupied"] = lc["type"].isin(self._CHECKIN_TYPES)
+        return lc.sort_values(["timestamp_utc", "room_id"], kind="stable").reset_index(drop=True)
+
+    @cached_property
+    def stays(self) -> pd.DataFrame:
+        """One row per actual stay: room, booking, start, end (NaT if still in house at the end).
+
+        HINDSIGHT TABLE: ``end_utc`` is only known once the guest has left. Use it for analysis
+        and insights; inside a detector use ``add_occupancy``, which is causal.
+        """
+        lc = self.lifecycle
+        starts = lc[lc["occupied"]].rename(
+            columns={"timestamp_utc": "start_utc", "type": "start_type"}
+        )
+        ends = lc[~lc["occupied"]].rename(columns={"timestamp_utc": "end_utc", "type": "end_type"})
+        stays = starts[["room_id", "booking_id", "start_utc", "start_type", "guests"]].merge(
+            ends[["room_id", "booking_id", "end_utc", "end_type"]],
+            on=["room_id", "booking_id"],
+            how="left",
+        )
+        return stays.sort_values(["start_utc", "room_id"], kind="stable").reset_index(drop=True)
+
+    def add_occupancy(self, df: pd.DataFrame, time_col: str = "timestamp_utc") -> pd.DataFrame:
+        """Add ``occupied`` (bool) and ``stay_booking_id`` to a frame with ``room_id`` and a time column.
+
+        Causal: the state at t follows from the last check-in/check-out event at or before t,
+        so it is exactly what the building knew at t. Rooms with no event yet count as vacant.
+        """
+        lc = self.lifecycle[["timestamp_utc", "room_id", "booking_id", "occupied"]].rename(
+            columns={"timestamp_utc": "_lc_time", "booking_id": "stay_booking_id"}
+        )
+        order = df[time_col].argsort(kind="stable")
+        merged = pd.merge_asof(
+            df.iloc[order],
+            lc.sort_values("_lc_time"),
+            left_on=time_col,
+            right_on="_lc_time",
+            by="room_id",
+        )
+        merged.index = df.index[order]
+        merged["occupied"] = merged["occupied"].eq(True)
+        merged.loc[~merged["occupied"], "stay_booking_id"] = pd.NA
+        return merged.drop(columns="_lc_time").loc[df.index]
+
     # ------------------------------------------------------------------- helpers
 
     def known_absence(self, resource_id: str, at: pd.Timestamp) -> str | None:

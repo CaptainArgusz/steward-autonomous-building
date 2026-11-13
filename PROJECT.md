@@ -26,6 +26,12 @@ Three things come out of it:
 
 "A dashboard alone is not enough; a chat agent without grounded decisions is not enough either."
 
+**Our angle (decided Fri 19:30):** the story the jury should remember is **design feedback for
+the next building** — findings about PLATO-40 that are proven with a year of data. Operations
+detection (S01–S03, done deeply) is what makes those findings credible. Everything is grounded:
+numbers come from the data or `building.json`, and we score ourselves against outcomes the
+replay recorded.
+
 ## 2. Deadlines (Vienna time)
 
 | When | What |
@@ -130,8 +136,9 @@ year of data + decisions ──► analysis ──► insights.md (CLARA rules, 
 
 | Path | What | Owner |
 |---|---|---|
-| `src/steward/dataset.py` | Loads a dataset directory; UTC timestamps, missing stays missing | shared |
+| `src/steward/dataset.py` | Loads a dataset directory; UTC timestamps, missing stays missing; causal occupancy (`add_occupancy`) and `stays` | shared |
 | `src/steward/contract.py` | `Decision` model, autonomy rules, file validator | shared — change only with team agreement |
+| `src/steward/audit.py` | Log of look-alikes a detector dismissed, and why | shared |
 | `src/steward/detectors/turnaround.py` | S01 turnaround conflicts | TBD |
 | `src/steward/detectors/water_leak.py` | S02 water leaks | TBD |
 | `src/steward/detectors/heating_comfort.py` | S03 energy vs comfort | TBD |
@@ -148,22 +155,20 @@ The core pipeline is deterministic and needs no network or API key. If we use an
 example to draft multilingual guest messages), it must be optional with a template fallback,
 so the holdout run cannot fail or change because of it.
 
-## 7. Workstreams — proposal, assign names at kick-off
+## 7. Working mode
 
-| Stream | Scope | Owner |
-|---|---|---|
-| **A · Building physics** | S02 water leak, S03 heating/comfort, S04 maintenance, energy optimisation. Time-series detection, look-alike rejection. | ______ |
-| **B · Operations** | S01 turnaround, S05 event weekend, cleaning/robot/on-call planning, logistics, guest messages with deadlines. | ______ |
-| **C · Product & integration** | UI and demo, mock executor and action trail, `insights.md`, README, video, submission. **Integrator**: owns `main`, the deliverable files, the tag. | ______ |
+We are **not splitting into streams for now**: the build happens in one place, and the others
+test and review from their own machines. Testers: pull `main`, run `make check`, open the UI,
+and report anything that looks wrong as a GitHub issue or directly in the team chat — most
+valuable are alerts that should not have fired and incidents the system missed.
 
-Everyone contributes findings to `insights.md` as they come across them — the people in the
-data all night are the ones who will notice what PLATO should build differently.
+Everyone adds findings to `insights.md` as they come across them.
 
 ## 8. Milestones
 
 | When | Done means |
 |---|---|
-| Fri 19:30 | Kick-off: names on streams, UI stack decided, everyone has run `make check` |
+| Fri 19:30 | Kick-off: direction, scope, LLM role and UI decided (done) |
 | Fri 23:00 | Each Level 1 detector emits first decisions on quickstart; UI shell renders a decisions file |
 | Sat 03:00 | S01–S03 run on dev with look-alike handling; first two insights written with evidence |
 | Sat 07:00 | Level 2 pieces in; executor and UI complete; `insights.md` drafted |
@@ -233,16 +238,22 @@ Full reference: [data/quickstart/README.md](data/quickstart/README.md). Contract
 
 ## 11. Open decisions and questions
 
-Decide at kick-off:
+Decided (Fri 19:30):
 
-- [ ] **UI stack.** Recommendation: Streamlit reading `decisions.jsonl` + the dataset — same
-      language as the pipeline, fastest route to a credible demo. Alternative: a web front end
-      if someone on the team is much faster in it.
-- [ ] **Owners** for the three streams (§7).
-- [ ] **LLM use.** Recommendation: only for guest-message drafting and possibly insight
-      wording, never in the detection path.
+- [x] **Main story:** design feedback for the next building.
+- [x] **Scope:** S01–S03 done deeply, plus insights. Level 2 only if time is left.
+- [x] **LLM role:** explains, never decides. Detection and decisions stay deterministic; an LLM
+      may write incident summaries and guest messages from structured evidence. Template
+      fallback first; outputs cached in the repo so a run never needs a key. Provider open —
+      we will use a free API key if we can get one.
+- [x] **UI:** a React web app built around a floor map of the 40 rooms.
+
+Still open:
+
 - [ ] **Project name.** "Steward" is a placeholder; it is also the Python package name, so
       rename early or not at all.
+- [ ] **Alert budget and guest-request policy.** Dev has ~1,600 guest requests; decide which
+      ones get a `notify_guest` decision without it becoming alert spam (ask a mentor).
 
 Ask the organisers on Discord (early — these affect the plan):
 
@@ -278,3 +289,8 @@ Ask the organisers on Discord (early — these affect the plan):
 | Fri 18:45 | Quickstart data committed, dev and holdout gitignored | Tests and CI run on a clean clone; the dev set has an 80 MB file and every team already has the download |
 | Fri 18:45 | A crashing detector is skipped, not fatal (`--strict` to fail fast) | We get one unchanged run on the holdout; partial output beats none |
 | Fri 18:45 | Deterministic `event_id`s and sorted output | Re-runs are byte-identical, so diffs of `decisions.jsonl` are meaningful |
+
+| Fri 19:30 | Story = design feedback; scope = S01–S03 deep + insights | Rhomberg builds buildings; fewest teams will lead with it; Level 1 is mandatory |
+| Fri 19:30 | LLM explains, never decides | Reproducible holdout run; no points for ungrounded output |
+| Fri 19:30 | React floor-map UI | Team choice; shows findings by floor and orientation directly |
+| Fri 19:30 | Detectors log dismissed look-alikes via `steward.audit` | Look-alike handling is otherwise invisible in `decisions.jsonl` |

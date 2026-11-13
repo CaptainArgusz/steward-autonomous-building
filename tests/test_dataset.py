@@ -32,3 +32,24 @@ def test_building_metadata(ds):
 def test_incomplete_directory_is_reported(tmp_path):
     with pytest.raises(DatasetError, match="missing dataset files"):
         Dataset(tmp_path)
+
+
+def test_occupancy_is_causal_and_matches_stays(ds):
+    stay = ds.stays.dropna(subset=["end_utc"]).iloc[5]
+    minute = pd.Timedelta(minutes=1)
+    probe = pd.DataFrame(
+        {
+            "room_id": stay["room_id"],
+            "timestamp_utc": [
+                stay["start_utc"] - minute,
+                stay["start_utc"],
+                stay["end_utc"] - minute,
+                stay["end_utc"],
+            ],
+        }
+    )
+    out = ds.add_occupancy(probe)
+    # Before check-in the room may still hold the previous guest; from check-in on it is ours.
+    assert out["occupied"].tolist()[1:] == [True, True, False]
+    assert out["stay_booking_id"].tolist()[1:3] == [stay["booking_id"]] * 2
+    assert list(out.index) == list(probe.index)

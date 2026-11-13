@@ -7,7 +7,7 @@ import time
 import traceback
 from pathlib import Path
 
-from steward import executor
+from steward import audit, executor
 from steward.contract import Decision, write_decisions
 from steward.dataset import Dataset
 from steward.detectors import DETECTORS
@@ -31,6 +31,7 @@ def run(
     instead and is what tests and CI use.
     """
     ds = Dataset(data_dir)
+    audit.drain()  # start clean when run() is called more than once in a process
     _log(f"steward: {ds.profile} dataset at {ds.root} ({ds.start:%Y-%m-%d} to {ds.end:%Y-%m-%d})")
 
     decisions: list[Decision] = []
@@ -58,7 +59,11 @@ def run(
 
     write_decisions(decisions, out)
     _log(f"steward: wrote {len(decisions)} decisions to {out}")
+    dismissed = audit.drain()
     if trail:
         executor.write_trail(executor.execute(decisions), trail)
+        dismissed_path = Path(trail).with_name("dismissed.jsonl")
+        audit.write(dismissed, dismissed_path)
         _log(f"steward: wrote mock-executor action trail to {trail}")
+        _log(f"steward: wrote {len(dismissed)} dismissed look-alikes to {dismissed_path}")
     return decisions, failed
