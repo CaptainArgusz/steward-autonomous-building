@@ -4,6 +4,7 @@ import pytest
 from steward.detectors.turnaround import (
     Cleaner,
     Task,
+    _Replay,
     detect,
     parse_requested_time,
     plan_queue,
@@ -57,6 +58,53 @@ def test_capacity_is_never_invented():
     assert len(done) == 2  # two 60-min cleanings start before the shift ends at 14:00
     assert sum(s.end is None for s in slots.values()) == 3
     assert plan_queue(tasks, [], 60, 45)["R101"].end is None
+
+
+def test_cleaning_must_finish_before_shift_end():
+    tasks = [Task("R101", ts("13:45"), ts("15:00"), None)]
+    crew = [Cleaner("CLEANER_1", ts("13:45"), ts("14:00"))]
+    assert plan_queue(tasks, crew, 60, 45)["R101"].end is None
+
+
+def test_robot_dispatch_requires_a_free_robot_for_the_whole_job(ds):
+    replay = _Replay(ds)
+    shift = ds.staff_roster[
+        (ds.staff_roster["role"] == "robot") & (ds.staff_roster["status"] == "scheduled")
+    ].iloc[0]
+    at = shift["start_utc"]
+    busy = shift["resource_id"]
+    assert replay.robot_on_shift(at) is not None
+    room = replay.rooms[ds.room_ids[0]]
+    room.robot_by, room.robot_started = busy, at
+    assert replay.robot_on_shift(at) != busy
+    room.robot_done = at
+    replay.reserve_robot(busy, at)
+    assert replay.robot_on_shift(at) != busy
+
+
+def test_single_oncall_cleaner_has_a_shared_queue_and_shift_limit(ds):
+    replay = _Replay(ds)
+    day = ds.start.tz_convert(ds.local_tz).date()
+    at = replay.at_local(day, (16, 0))
+    first = replay.oncall_slot(day, at)
+    assert first is not None
+    replay.oncall_reserved_until[day] = first[1]
+    second = replay.oncall_slot(day, at)
+    assert second is not None and second[0] >= first[1]
+    assert replay.oncall_slot(day, replay.at_local(day, (21, 30))) is None
+
+
+def test_in_progress_cleaning_only_gets_robot_time_saving_after_a_completed_pass(ds):
+    replay = _Replay(ds)
+    room = replay.rooms[ds.room_ids[0]]
+    started = ds.start + pd.Timedelta(hours=1)
+    room.cleaning_by, room.cleaning_started = "CLEANER_1", started
+    day = replay.day_of(started)
+    plain = replay.ready_times(started, day, "edf")[ds.room_ids[0]]
+    assert plain.end == started + pd.Timedelta(minutes=replay.stats.clean_min)
+    room.robot_done = started - pd.Timedelta(minutes=1)
+    assisted = replay.ready_times(started, day, "edf")[ds.room_ids[0]]
+    assert assisted.end == started + pd.Timedelta(minutes=replay.stats.clean_robot_min)
 
 
 def test_messages_fall_back_to_english():

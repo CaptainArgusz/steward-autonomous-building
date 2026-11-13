@@ -134,8 +134,7 @@ def plan_queue(
     """Greedy list scheduling of cleaning tasks onto cleaners.
 
     ``edf`` serves the earliest guest need first, ``fifo`` the room vacated first. A cleaner
-    never starts after the shift ends; whatever is left over gets ``end=None`` - capacity is
-    never invented.
+    must finish inside the shift; whatever is left over gets ``end=None``.
     """
     far = pd.Timestamp.max.tz_localize("UTC")
     pending = list(tasks)
@@ -148,16 +147,25 @@ def plan_queue(
         if not ready:
             c.free_at = min(t.available for t in pending)
             ready = [t for t in pending if t.available <= c.free_at]
-        if c.free_at >= c.shift_end:
+        key = (
+            (lambda task: (task.need or far, task.available, task.room))
+            if policy == "edf"
+            else (lambda task: (task.available, task.room))
+        )
+        task = None
+        end = None
+        for candidate in sorted(ready, key=key):
+            robot = candidate.robot_ready is not None and candidate.robot_ready <= c.free_at
+            candidate_end = c.free_at + pd.Timedelta(
+                minutes=clean_robot_min if robot else clean_min
+            )
+            if candidate_end <= c.shift_end:
+                task, end = candidate, candidate_end
+                break
+        if task is None:
             crew.pop(0)
             continue
-        if policy == "edf":
-            task = min(ready, key=lambda t: (t.need or far, t.available, t.room))
-        else:
-            task = min(ready, key=lambda t: (t.available, t.room))
         start = c.free_at
-        robot = task.robot_ready is not None and task.robot_ready <= start
-        end = start + pd.Timedelta(minutes=clean_robot_min if robot else clean_min)
         out[task.room] = Slot(start, end, c.resource_id)
         c.free_at = end
         pending.remove(task)
@@ -179,6 +187,7 @@ class Room:
     cleaning_started: pd.Timestamp | None = None
     robot_started: pd.Timestamp | None = None
     robot_done: pd.Timestamp | None = None
+    robot_by: str | None = None
 
 
 @dataclass
@@ -249,6 +258,9 @@ class _Replay:
         self.day_flagged: set = set()
         self.waiting: dict[tuple, pd.Timestamp] = {}  # (room, day) -> guest at the door since
         self.spare_offered: set[tuple] = set()  # (room, day) already proposed for a move
+        self.robot_reserved_until: dict[str, pd.Timestamp] = {}
+        self.oncall_reserved_until: dict = {}
+        self.oncall_eta_by_episode: dict[str, pd.Timestamp] = {}
 
         b = ds.bookings_expected.copy()  # no hindsight about cancellations
         b["arr_day"] = b["arrival_utc"].dt.tz_convert(self.tz).dt.date
@@ -313,9 +325,35 @@ class _Replay:
             return None
         for r in rows[rows["role"] == "robot"].itertuples():
             known_absent = r.status != "scheduled" and r.status_known_utc <= t
-            if not known_absent and r.start_utc <= t < r.end_utc:
-                return r.resource_id
+            if known_absent or not (r.start_utc <= t < r.end_utc):
+                continue
+            if t + pd.Timedelta(minutes=self.stats.robot_min) > r.end_utc:
+                continue
+            if self.robot_reserved_until.get(r.resource_id, t) > t:
+                continue
+            if any(
+                room.robot_by == r.resource_id
+                and room.robot_started is not None
+                and room.robot_done is None
+                for room in self.rooms.values()
+            ):
+                continue
+            return r.resource_id
         return None
+
+    def reserve_robot(self, resource_id: str, at: pd.Timestamp) -> None:
+        self.robot_reserved_until[resource_id] = at + pd.Timedelta(minutes=self.stats.robot_min)
+
+    def oncall_slot(self, day, at: pd.Timestamp) -> tuple[pd.Timestamp, pd.Timestamp] | None:
+        start = max(
+            at + ONCALL_TRAVEL,
+            self.at_local(day, self.oncall_start_hm) + ONCALL_TRAVEL,
+            self.oncall_reserved_until.get(day, at),
+        )
+        end = start + pd.Timedelta(minutes=self.stats.clean_min)
+        if end > self.at_local(day, self.oncall_end_hm):
+            return None
+        return start, end
 
     def need_for(self, room: str, day, t: pd.Timestamp) -> tuple[pd.Timestamp | None, str | None]:
         """(when the next guest needs ``room`` on ``day``, booking id), from what is known at t."""
@@ -357,7 +395,6 @@ class _Replay:
         instead assumed to stay occupied until the checkout deadline: for a promise to one
         specific guest we plan with the only time that is guaranteed.
         """
-        robot = pd.Timedelta(minutes=self.stats.robot_min)
         overrides, firm = overrides or {}, firm or set()
         departing = [
             rid
@@ -387,15 +424,15 @@ class _Replay:
                 )
                 if vacant is None:
                     continue
-                robot_ready = vacant + robot
+                robot_ready = None  # a future robot pass has not been reserved or observed
             elif room.dirty_since is not None:
                 vacant = t
                 if room.robot_done is not None:
                     robot_ready = room.robot_done
                 elif room.robot_started is not None:
-                    robot_ready = room.robot_started + robot
+                    robot_ready = room.robot_started + pd.Timedelta(minutes=self.stats.robot_min)
                 else:
-                    robot_ready = t + robot
+                    robot_ready = None
             else:
                 continue
             need, _ = self.need_for(rid, day, t)
@@ -415,7 +452,9 @@ class _Replay:
         )
         for rid, room in self.rooms.items():
             if room.cleaning_by is not None and room.cleaning_started is not None:
-                end = room.cleaning_started + pd.Timedelta(minutes=self.stats.clean_robot_min)
+                assisted = room.robot_done is not None and room.robot_done <= room.cleaning_started
+                duration = self.stats.clean_robot_min if assisted else self.stats.clean_min
+                end = room.cleaning_started + pd.Timedelta(minutes=duration)
                 slots[rid] = Slot(room.cleaning_started, max(end, t), room.cleaning_by)
         return slots
 
@@ -541,6 +580,7 @@ class _Replay:
         robot = self.robot_on_shift(at)
         deps = [plan_id]
         if robot and not room.occupied and room.robot_started is None and room.cleaning_by is None:
+            self.reserve_robot(robot, at)
             deps.append(
                 self.emit(
                     at,
@@ -734,25 +774,50 @@ class _Replay:
             confidence=0.7,
         )
         robot = self.robot_on_shift(t)
-        if robot:
+        robot_room = next(
+            (
+                rid
+                for rid in rooms
+                if not self.rooms[rid].occupied
+                and self.rooms[rid].dirty_since is not None
+                and self.rooms[rid].robot_started is None
+                and self.rooms[rid].cleaning_by is None
+            ),
+            None,
+        )
+        if robot and robot_room:
+            self.reserve_robot(robot, t)
             self.emit(
                 t,
-                "BUILDING",
+                robot_room,
                 "dispatch_robot",
                 episode,
-                affected_assets=[robot] + rooms,
+                affected_assets=[robot_room, robot],
                 priority="medium",
-                reason="Robots pre-clean floors of rooms with same-day arrivals as soon as each is vacated "
-                f"(trailing median cleaning {self.stats.clean_robot_min:.0f} min after a robot pass, {self.stats.clean_min:.0f} min without). Robots never enter occupied rooms.",
+                reason=f"Pre-clean the floor of vacant {robot_room}; this robot is reserved for one room at a time. "
+                "Only a cleaner can certify the room as ready.",
                 requires_human_approval=False,
                 resource_id=robot,
-                evidence=evidence[-1:],
+                evidence=self.room_evidence(robot_room, t),
                 dependencies=[plan_id],
-                expected_outcome="Simulated: shorter human cleaning on the critical rooms; robots cannot certify or release a room.",
-                verification_plan="robot_floor_cleaning_completed precedes cleaning_started for the listed rooms.",
+                expected_outcome="Simulated: floor pre-clean for this room only; a cleaner still has to finish the room.",
+                verification_plan=f"robot_floor_cleaning_completed for {robot_room} precedes cleaning_started.",
                 confidence=0.6,
             )
         unfinished = [rid for rid, slot, _ in short if slot.end is None]
+        oncall_etas = {}
+        if unfinished:
+            cursor = max(
+                t + ONCALL_TRAVEL,
+                self.at_local(day, self.oncall_start_hm) + ONCALL_TRAVEL,
+                self.oncall_reserved_until.get(day, t),
+            )
+            for rid in unfinished:
+                end = cursor + pd.Timedelta(minutes=self.stats.clean_min)
+                if end > self.at_local(day, self.oncall_end_hm):
+                    break
+                oncall_etas[rid] = end
+                cursor = end
         if unfinished:
             self.emit(
                 t,
@@ -762,12 +827,12 @@ class _Replay:
                 affected_assets=["ONCALL_1"] + unfinished,
                 priority="high",
                 reason=f"{len(unfinished)} arrival room(s) cannot be cleaned within the regular shift ({', '.join(unfinished)}). "
-                f"Approve calling the on-call housekeeper from {self.oncall_start_hm[0]:02d}:{self.oncall_start_hm[1]:02d} local "
-                "(costly, ~45 min to site, one room at a time).",
+                f"The single on-call housekeeper can cover {len(oncall_etas)} within the shift, one room at a time; "
+                "approve that cover and arrange other capacity for the rest.",
                 requires_human_approval=True,
                 evidence=evidence,
                 dependencies=[plan_id],
-                expected_outcome="If approved (simulated): on-call covers the rooms left after the shift, one at a time.",
+                expected_outcome="If approved (simulated): on-call covers only the rooms that fit its shift; any remainder needs another plan.",
                 verification_plan="oncall_housekeeping_called event after approval; cleaning_completed for the listed rooms.",
                 confidence=0.6,
             )
@@ -780,12 +845,9 @@ class _Replay:
             self.episodes_with_notice.add(ep)
             eta = slot.end
             if eta is None:
-                idx = unfinished.index(rid)
-                eta = (
-                    self.at_local(day, self.oncall_start_hm)
-                    + ONCALL_TRAVEL
-                    + pd.Timedelta(minutes=self.stats.clean_min * (idx + 1))
-                )
+                eta = oncall_etas.get(rid)
+            if eta is None:
+                continue  # no feasible capacity: do not promise a fabricated ready time
             shown = _hhmm(_ceil_quarter(eta), self.tz)
             text, lang = render_message("eta", self.language_for(booking, t), eta=shown)
             self.emit(
@@ -889,18 +951,14 @@ class _Replay:
             evidence.append(f"events.jsonl:arrival_waiting_room {rid} {booking} at {utc_z(t)}")
             language = self.language_for(booking, t)
         deps = []
-        oncall_from = self.at_local(day, self.oncall_start_hm)
-        oncall_until = self.at_local(day, self.oncall_end_hm)
-        if (
-            eta is None
-            and room.cleaning_by is None
-            and (room.dirty_since is not None or room.occupied)
-        ):
-            start = max(t, oncall_from) + ONCALL_TRAVEL
-            if start < oncall_until and not any(
+        if eta is None and room.cleaning_by is None and room.dirty_since is not None:
+            slot_oncall = self.oncall_slot(day, t)
+            if slot_oncall and not any(
                 d.episode_id == episode and d.resource_id == "ONCALL_1" for d in self.decisions
             ):
-                eta = start + pd.Timedelta(minutes=self.stats.clean_min)
+                _, eta = slot_oncall
+                self.oncall_reserved_until[day] = eta
+                self.oncall_eta_by_episode[episode] = eta
                 deps.append(
                     self.emit(
                         t,
@@ -920,8 +978,8 @@ class _Replay:
                         confidence=0.75,
                     )
                 )
-            elif start < oncall_until:
-                eta = start + pd.Timedelta(minutes=self.stats.clean_min)
+            elif episode in self.oncall_eta_by_episode:
+                eta = self.oncall_eta_by_episode[episode]
         long_wait = eta is None or eta - t > LONG_WAIT
         already = any(
             d.episode_id == episode and d.action == "reassign_room" for d in self.decisions
@@ -998,7 +1056,7 @@ class _Replay:
                 local = t.tz_convert(self.tz)
                 self.stats.checkout_minute.append(local.hour * 60 + local.minute)
         elif kind == "robot_floor_cleaning_started":
-            room.robot_started = t
+            room.robot_started, room.robot_by = t, e.resource_id
         elif kind == "robot_floor_cleaning_completed":
             room.robot_done = t
             if room.robot_started is not None:
