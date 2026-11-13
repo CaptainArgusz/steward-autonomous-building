@@ -128,7 +128,13 @@ def score(ds: Dataset, decisions: list[Decision]) -> dict:
         caught, leads = 0, []
         for when, asset in outcomes[probe.key]:
             hit = (
-                ours[(ours["t"] >= when - probe.lookback) & (ours["t"] <= when + probe.grace)]
+                ours[
+                    (ours["t"] >= when - probe.lookback)
+                    & (
+                        (ours["t"] < when)
+                        | (ours["t"] <= when + probe.grace) & (probe.grace > pd.Timedelta(0))
+                    )
+                ]
                 if len(ours)
                 else ours
             )

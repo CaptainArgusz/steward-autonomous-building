@@ -10,9 +10,9 @@ each action would be verified.
 > PLATO-40 is a synthetic reference property. Nothing here is a statement about real PLATO
 > buildings or about CLARA. All effects of actions are simulated; no savings are measured.
 
-**Status: work in progress.** The pipeline, the decision contract and its validator, the data
-loaders and the mock executor work end to end. Detection currently covers one baseline rule
-(central waste container). See [PROJECT.md](PROJECT.md) §12 for the current state of every part.
+**Status: work in progress.** The three mandatory scenarios (checkout conflict, water leak,
+heating vs comfort) have a first working version, the insights report has 12 findings, and
+there is a web UI. See [PROJECT.md](PROJECT.md) §12 for results and known issues.
 
 ## Run it
 
@@ -36,10 +36,18 @@ uv run steward run data/holdout/<extracted folder> --out decisions_holdout.jsonl
 The quickstart dataset is included in this repository. The dev and holdout datasets are not;
 [data/README.md](data/README.md) says where to put them.
 
+Web UI (needs Node 20+):
+
+```bash
+make ui        # runs the pipeline, writes the data bundles, serves http://localhost:5173
+```
+
 Other commands:
 
 ```bash
 uv run steward validate decisions.jsonl --data-dir data/dev   # contract + building checks
+uv run steward score decisions.jsonl --data-dir data/dev      # compare with outcomes the replay recorded
+uv run steward insights data/dev                              # regenerate insights.md and insights.jsonl
 uv run steward info data/dev                                  # tables, row counts, missing cells
 make check                                                    # lint, tests, quickstart run
 ```
@@ -78,7 +86,9 @@ data dir ─► Dataset ─► detectors ─► Decision[] ─► decisions.json
 - **`steward.executor`** is a mock executor. Autonomous decisions are logged as
   `executed_simulated`; everything else stays `pending_human_approval` (and guest consent).
 
-Only actions from the challenge vocabulary are used.
+Only actions from the challenge vocabulary are used. Two extra fields may appear on a
+decision: `proposed_message` and `message_language` (a guest message that is proposed, never
+delivered).
 
 ## Environment
 
