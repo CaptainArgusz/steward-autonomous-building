@@ -94,7 +94,8 @@ def _outcomes(ds: Dataset) -> dict[str, list[tuple[pd.Timestamp, str | None]]]:
         & (ev["alarm_code"] == "WATER_NIGHT_FLOW")
         & (ev["state"] == "raised")
     ]
-    out["night_flow_alarm"] = list(zip(night["timestamp_utc"], night["asset_id"], strict=True))
+    # The BMS raises this on the main meter, whichever room is leaking: match on time only.
+    out["night_flow_alarm"] = [(t, None) for t in night["timestamp_utc"]]
 
     hp = ds.equipment_wide("HP1")
     faults: list = []
