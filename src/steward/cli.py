@@ -11,7 +11,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from steward import export, pipeline, scorecard
+from steward import export, insights, pipeline, scorecard
 from steward.contract import validate_file
 from steward.dataset import Dataset, DatasetError
 from steward.detectors import DETECTORS
@@ -131,6 +131,10 @@ def main(argv: list[str] | None = None) -> int:
     score.add_argument("decisions")
     score.add_argument("--data-dir", required=True)
     score.set_defaults(func=_cmd_score)
+
+    ins = sub.add_parser("insights", help="recompute insights.md / insights.jsonl from a dataset")
+    ins.add_argument("data_dir")
+    ins.set_defaults(func=lambda a: insights.main([a.data_dir]) or 0)
 
     info = sub.add_parser("info", help="summarise a dataset")
     info.add_argument("data_dir")

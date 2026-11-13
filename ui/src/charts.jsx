@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { fmtTime } from "./util.js";
 
 // Categorical slots in fixed order (never cycled); two series is the most we draw per chart.
-const SERIES = ["var(--water)", "var(--heat)", "var(--turn)"];
+const SERIES = ["var(--water)", "var(--heat)", "var(--turn)", "var(--logi)"];
 
 function useWidth() {
   const ref = useRef(null);
@@ -137,8 +137,60 @@ export function LineChart({ chart, markers = [], tz }) {
   );
 }
 
+/** Line chart over ordered categories (e.g. outdoor-temperature bins, hours of the day). */
+export function CategoryLine({ chart }) {
+  const [ref, width] = useWidth();
+  const [hover, setHover] = useState(null);
+  const H = 170, m = { l: 40, r: 12, t: 12, b: 22 };
+  const cats = chart.categories || [], series = chart.series || [];
+  const vals = series.flatMap((s) => s.values).filter((v) => v != null);
+  if (!cats.length || !vals.length) return null;
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  if (lo > 0 && lo < hi * 0.5) lo = 0;
+  const pad = (hi - lo || 1) * 0.08; lo -= lo === 0 ? 0 : pad; hi += pad;
+  const X = (i) => m.l + (cats.length === 1 ? 0.5 : i / (cats.length - 1)) * (width - m.l - m.r);
+  const Y = (v) => m.t + (1 - (v - lo) / (hi - lo)) * (H - m.t - m.b);
+  const every = Math.ceil(cats.length / 8);
+  return (
+    <div className="chart" ref={ref}>
+      <div className="ct"><b>{chart.title}</b><span className="muted">{chart.unit}</span></div>
+      <div className="chartwrap">
+        <svg height={H} role="img" aria-label={chart.title} onMouseLeave={() => setHover(null)}
+          onMouseMove={(e) => {
+            const x = e.clientX - e.currentTarget.getBoundingClientRect().left;
+            setHover(Math.max(0, Math.min(cats.length - 1, Math.round(((x - m.l) / (width - m.l - m.r)) * (cats.length - 1)))));
+          }}>
+          <g className="axis">
+            {niceTicks(lo, hi).map((v) => (
+              <g key={v}><line className="grid" x1={m.l} x2={width - m.r} y1={Y(v)} y2={Y(v)} /><text x={m.l - 5} y={Y(v) + 3} textAnchor="end">{v}</text></g>
+            ))}
+            {cats.map((c, i) => i % every === 0 && <text key={i} x={X(i)} y={H - 6} textAnchor="middle">{String(c)}</text>)}
+          </g>
+          {series.map((s, si) => (
+            <g key={s.name}>
+              <path fill="none" stroke={SERIES[si % 4]} strokeWidth="2" strokeLinejoin="round"
+                d={s.values.reduce((d, v, i) => (v == null ? d : `${d}${d && s.values[i - 1] != null ? "L" : "M"}${X(i).toFixed(1)},${Y(v).toFixed(1)}`), "")} />
+              {cats.length <= 12 && s.values.map((v, i) => v != null && <circle key={i} cx={X(i)} cy={Y(v)} r="4" fill={SERIES[si % 4]} stroke="var(--surface)" strokeWidth="2" />)}
+            </g>
+          ))}
+          {hover != null && <line x1={X(hover)} x2={X(hover)} y1={m.t} y2={H - m.b} stroke="var(--text-3)" strokeWidth="1" />}
+        </svg>
+        {hover != null && (
+          <div className="tip" style={{ left: X(hover), top: m.t }}>
+            {String(cats[hover])} · {series.map((s) => `${s.name} ${s.values[hover] ?? "–"}`).join(" · ")} {chart.unit}
+          </div>
+        )}
+      </div>
+      {series.length > 1 && (
+        <div className="legend">{series.map((s, i) => <span key={s.name}><i className="swatch" style={{ background: SERIES[i % 4] }} />{s.name}</span>)}</div>
+      )}
+    </div>
+  );
+}
+
 /** Grouped bar chart for already-aggregated insight evidence. */
 export function BarChart({ chart }) {
+  if (chart.kind === "line") return <CategoryLine chart={chart} />;
   const [ref, width] = useWidth();
   const [hover, setHover] = useState(null);
   const H = 170, m = { l: 40, r: 8, t: 14, b: 22 };
@@ -176,7 +228,7 @@ export function BarChart({ chart }) {
             return (
               <g key={key} onMouseEnter={() => setHover(key)} onMouseLeave={() => setHover(null)}>
                 <rect x={x - 2} y={m.t} width={bw + 4} height={H - m.t - m.b} fill="transparent" />
-                <rect x={x} y={Math.min(y0, y1)} width={bw} height={Math.max(1, Math.abs(y1 - y0))} rx="3" fill={SERIES[si % 3]}
+                <rect x={x} y={Math.min(y0, y1)} width={bw} height={Math.max(1, Math.abs(y1 - y0))} rx="3" fill={SERIES[si % 4]}
                   opacity={hover && hover !== key ? 0.55 : 1} />
                 {(series.length === 1 || hover === key) && (
                   <text x={x + bw / 2} y={Math.min(y0, y1) - 3} textAnchor="middle" fontSize="10" fill="var(--text-2)">{fmt(v)}</text>
@@ -188,7 +240,7 @@ export function BarChart({ chart }) {
       </div>
       {series.length > 1 && (
         <div className="legend">
-          {series.map((s, i) => <span key={s.name}><i className="swatch" style={{ background: SERIES[i % 3] }} />{s.name}</span>)}
+          {series.map((s, i) => <span key={s.name}><i className="swatch" style={{ background: SERIES[i % 4] }} />{s.name}</span>)}
         </div>
       )}
     </div>

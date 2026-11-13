@@ -189,7 +189,7 @@ export default function App() {
   const shown = data.episodes.filter((e) => (!type || e.issue_type === type) && (!room || e.rooms.includes(room) || e.assets.includes(room)));
   const selected = data.episodes.find((e) => e.id === sel) || null;
   const insight = mapInsight != null ? data.insights.find((i) => i.insight_id === mapInsight) : null;
-  const heat = tab === "findings" && insight ? { rooms: insight.rooms, label: insight.rooms_label || insight.topic } : null;
+  const heat = tab === "findings" && insight ? { rooms: insight.rooms, label: `${insight.rooms_unit || ""} · ${insight.insight_id} ${insight.topic}` } : null;
   const plant = [...new Set(data.episodes.flatMap((e) => e.assets.filter((a) => !e.rooms.includes(a))))];
   const count = (pred) => data.episodes.filter(pred).length;
   const pick = (id) => { setSel(id); setTab("incidents"); };
