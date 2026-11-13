@@ -1,0 +1,4 @@
+* text=auto eol=lf
+# Dataset files are committed byte-for-byte as distributed.
+data/** -text
+*.pdf binary

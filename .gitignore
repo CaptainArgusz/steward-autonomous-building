@@ -1,0 +1,40 @@
+# --- Data: only the small quickstart set is committed (see data/README.md) ---
+data/dev/
+data/holdout/
+*.7z
+*.zip
+
+# --- Generated output (root decisions*.jsonl ARE committed deliverables) ---
+out/
+.cache/
+*.parquet
+
+# --- Secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Python ---
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+dist/
+build/
+
+# --- Node (if we add a web UI) ---
+node_modules/
+.next/
+
+# --- OS / editors ---
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# --- Local AI-tool state ---
+.claude/settings.local.json
