@@ -228,7 +228,7 @@ export default function App() {
 
         <div>
           <div style={{ marginBottom: 12 }}>
-            <Seg value={tab} onChange={setTab} options={[["findings", `Design findings (${data.insights.length})`], ["incidents", `Incidents (${data.episodes.length})`], ["dismissed", `Dismissed (${data.dismissed.length})`]]} />
+            <Seg value={tab} onChange={setTab} options={[["findings", `Design findings (${data.insights.length})`], ["incidents", `Incidents (${data.episodes.length})`], ["dismissed", `Dismissed (${data.dismissed.length})`], ["score", "Scorecard"]]} />
           </div>
 
           {tab === "findings" && (data.insights.length === 0
@@ -265,6 +265,40 @@ export default function App() {
               </div>
               {selected ? <EpisodeDetail e={selected} tz={tz} /> : <div className="card empty">Select an incident to see its evidence, decisions, approval level and verification plan.</div>}
             </>
+          )}
+
+          {tab === "score" && (
+            <div className="card">
+              <h2>How we did against what the replay recorded</h2>
+              {!data.scorecard ? <div className="empty">No scorecard in this bundle.</div> : (
+                <>
+                  <table className="tbl">
+                    <thead><tr><th>Recorded outcome</th><th>Recorded</th><th>We flagged it before</th><th>Median lead</th></tr></thead>
+                    <tbody>
+                      {data.scorecard.outcomes.map((r) => (
+                        <tr key={r.key}>
+                          <td><i className="swatch" style={{ background: issue(r.issue_type).color }} />{r.label}</td>
+                          <td>{r.recorded}</td><td>{r.recorded ? `${r.flagged_before} of ${r.recorded}` : "–"}</td>
+                          <td>{r.median_lead_h != null ? `${r.median_lead_h} h` : "–"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <table className="tbl" style={{ marginTop: 14 }}>
+                    <thead><tr><th>Our incidents ({data.scorecard.weeks} weeks)</th><th>Incidents</th><th>Per week</th><th>Matched a recorded outcome</th></tr></thead>
+                    <tbody>
+                      {data.scorecard.by_issue.map((r) => (
+                        <tr key={r.issue_type}>
+                          <td><i className="swatch" style={{ background: issue(r.issue_type).color }} />{issue(r.issue_type).label}</td>
+                          <td>{r.incidents}</td><td>{r.incidents_per_week}</td><td>{r.incidents_with_recorded_outcome}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <p className="muted small">{data.scorecard.caveat}</p>
+                </>
+              )}
+            </div>
           )}
 
           {tab === "dismissed" && (

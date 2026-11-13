@@ -11,7 +11,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from steward import export, pipeline
+from steward import export, pipeline, scorecard
 from steward.contract import validate_file
 from steward.dataset import Dataset, DatasetError
 from steward.detectors import DETECTORS
@@ -59,17 +59,26 @@ def _cmd_ui(args: argparse.Namespace) -> int:
     work = Path("out") / ds.profile
     decisions, trail = work / "decisions.jsonl", work / "action_trail.jsonl"
     pipeline.run(args.data_dir, out=decisions, trail=trail)
+    card = scorecard.score(ds, validate_file(decisions, ds).decisions)
+    print(scorecard.render(card))
     bundle = export.build(
         args.data_dir,
         decisions,
         dismissed_path=work / "dismissed.jsonl",
         insights_path=args.insights,
+        scorecard=card,
     )
     out = Path(args.out or f"ui/public/data/{ds.profile}.json")
     export.write(bundle, out)
     print(
         f"steward: wrote UI bundle {out} ({out.stat().st_size / 1e6:.1f} MB, {len(bundle['episodes'])} incidents)"
     )
+    return 0
+
+
+def _cmd_score(args: argparse.Namespace) -> int:
+    ds = Dataset(args.data_dir)
+    print(scorecard.render(scorecard.score(ds, validate_file(args.decisions, ds).decisions)))
     return 0
 
 
@@ -117,6 +126,11 @@ def main(argv: list[str] | None = None) -> int:
     ui.add_argument("--out", help="bundle path (default: ui/public/data/<profile>.json)")
     ui.add_argument("--insights", default="insights.jsonl", help="insights file to include")
     ui.set_defaults(func=_cmd_ui)
+
+    score = sub.add_parser("score", help="score decisions against outcomes recorded in the replay")
+    score.add_argument("decisions")
+    score.add_argument("--data-dir", required=True)
+    score.set_defaults(func=_cmd_score)
 
     info = sub.add_parser("info", help="summarise a dataset")
     info.add_argument("data_dir")
