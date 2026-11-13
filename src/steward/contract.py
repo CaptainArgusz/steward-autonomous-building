@@ -86,6 +86,10 @@ class Decision(BaseModel):
     resource_id: str | None = None
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
 
+    # --- our documented extensions (README "Extra fields") ---
+    proposed_message: str | None = None  # guest message text; proposed, never "delivered"
+    message_language: str | None = None  # language code of proposed_message (de, en, it, ...)
+
     @field_validator("timestamp_utc", mode="before")
     @classmethod
     def _coerce_timestamp(cls, v: Any) -> str:
