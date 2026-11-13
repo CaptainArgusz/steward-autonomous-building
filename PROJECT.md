@@ -285,11 +285,16 @@ scorecard below.
 
 Known issues to review:
 
-- S01 and S03 filter bookings on `status == confirmed`, but there is no cancellation timestamp,
-  so that filter uses a little hindsight.
 - S03 needs about two days of heating-weather history before its efficiency baseline works.
 - S02's main-meter rule only looks at night, so a pipe leak starting in the morning is caught late.
 - Nobody but the author has read every alert yet. Testers: please do.
+
+Data-quality and causality handling: blanks stay missing; implausible and frozen readings,
+meter restarts and duplicates are masked where they are used; BMS alarms never trigger a
+decision. `tests/test_causality.py` cuts the data at a point in time and checks that every
+earlier decision is unchanged, for all detectors. Cancelled bookings are only dropped when the
+data proves the cancellation in time (`Dataset.bookings_expected`), because the data has no
+cancellation timestamp.
 
 ## 13. Decision log
 
@@ -304,3 +309,4 @@ Known issues to review:
 | Fri 19:30 | LLM explains, never decides | Reproducible holdout run; no points for ungrounded output |
 | Fri 19:30 | React floor-map UI | Team choice; shows findings by floor and orientation directly |
 | Fri 19:30 | Detectors log dismissed look-alikes via `steward.audit` | Look-alike handling is otherwise invisible in `decisions.jsonl` |
+| Fri 21:00 | Cancelled bookings count as expected arrivals unless the room was provably resold a day before | `status` is a final outcome with no timestamp; dropping all cancelled bookings would use hindsight |

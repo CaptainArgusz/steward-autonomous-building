@@ -128,6 +128,30 @@ class Dataset:
         return self._csv("bookings.csv")
 
     @cached_property
+    def bookings_expected(self) -> pd.DataFrame:
+        """Bookings an operator would still expect to arrive - without using hindsight.
+
+        ``status`` is the final outcome and the data has no cancellation timestamp, so
+        dropping every ``cancelled`` booking would use knowledge from the future. A
+        cancellation is only treated as known when the data proves it in time: another
+        booking for the same room and overlapping dates existed at least a day before the
+        arrival (the room was resold). Cancelled bookings without such proof are kept, as
+        the building would still have been expecting them.
+        """
+        b = self.bookings
+        live = b[b["status"] != "cancelled"]
+        dead = b[b["status"] == "cancelled"]
+        pairs = dead.merge(live, on="room_id", suffixes=("", "_other"))
+        pairs = pairs[
+            (pairs["arrival_utc"] < pairs["departure_utc_other"])
+            & (pairs["arrival_utc_other"] < pairs["departure_utc"])
+        ]
+        proven_at = pairs[["created_utc", "created_utc_other"]].max(axis=1)
+        in_time = proven_at <= pairs["arrival_utc"] - pd.Timedelta(days=1)
+        known_cancelled = set(pairs.loc[in_time, "booking_id"])
+        return b[~b["booking_id"].isin(known_cancelled)]
+
+    @cached_property
     def access_log(self) -> pd.DataFrame:
         return self._csv("access_log.csv")
 

@@ -126,6 +126,8 @@ class Context:
         t["month"] = local.dt.month
         t["hour"] = local.dt.hour
         t["date"] = local.dt.date
+        # Sensor glitches (the data contains readings from -40 to 85 C) are not room temperatures.
+        t["temperature_c"] = t["temperature_c"].where(t["temperature_c"].between(5.0, 40.0))
         t["shortfall_k"] = t["setpoint_c"] - t["temperature_c"]
         return t
 

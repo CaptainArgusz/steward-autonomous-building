@@ -250,8 +250,7 @@ class _Replay:
         self.waiting: dict[tuple, pd.Timestamp] = {}  # (room, day) -> guest at the door since
         self.spare_offered: set[tuple] = set()  # (room, day) already proposed for a move
 
-        b = ds.bookings
-        b = b[b["status"] == "confirmed"].copy()
+        b = ds.bookings_expected.copy()  # no hindsight about cancellations
         b["arr_day"] = b["arrival_utc"].dt.tz_convert(self.tz).dt.date
         b["dep_day"] = b["departure_utc"].dt.tz_convert(self.tz).dt.date
         self.bookings = b.set_index("booking_id")

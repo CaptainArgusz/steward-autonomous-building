@@ -233,7 +233,7 @@ class _Context:
         req = ds.guest_requests
         self.requests = req.sort_values("timestamp_utc")
         self.cold_requests = self.requests[self.requests["request_type"] == "temperature_cold"]
-        self.bookings = ds.bookings[ds.bookings["status"] == "confirmed"]
+        self.bookings = ds.bookings_expected  # no hindsight about cancellations
 
     def forecast_min(self, at: pd.Timestamp) -> tuple[float, pd.Timestamp, pd.Timestamp] | None:
         known = self.forecast[self.forecast["issued_utc"] <= at]
