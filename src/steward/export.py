@@ -9,6 +9,7 @@ time, and nothing after that line was available to the detector.
 from __future__ import annotations
 
 import json
+import re
 from collections import defaultdict
 from pathlib import Path
 
@@ -171,6 +172,39 @@ def _room_events(ds: Dataset, rooms: list[str], start, end) -> list[dict]:
     return out
 
 
+def _time_context(ds: Dataset, d: Decision) -> list[dict]:
+    """Records available when this decision was made, for the optional UI detail."""
+    at = pd.Timestamp(d.timestamp_utc)
+    notes = []
+    evidence = " ".join(d.evidence or [])
+    bookings = ds.bookings.set_index("booking_id")
+    for booking_id in sorted(set(re.findall(r"bookings\.csv:(BK\d+)", evidence))):
+        if booking_id in bookings.index:
+            created = bookings.at[booking_id, "created_utc"]
+            if created <= at:
+                notes.append({"label": f"Booking {booking_id} created", "at": utc_z(created)})
+    requests = ds.guest_requests.set_index("request_id")
+    for request_id in d.guest_request_ids or []:
+        if request_id in requests.index:
+            received = requests.at[request_id, "timestamp_utc"]
+            if received <= at:
+                notes.append(
+                    {"label": f"Guest request {request_id} received", "at": utc_z(received)}
+                )
+    if d.resource_id and not d.resource_id.startswith("ONCALL"):
+        roster = ds.staff_roster
+        shift = roster[
+            (roster["resource_id"] == d.resource_id)
+            & (roster["start_utc"] <= at)
+            & (roster["end_utc"] > at)
+        ]
+        if not shift.empty:
+            row = shift.iloc[0]
+            state = row["status"] if row["status_known_utc"] <= at else "scheduled"
+            notes.append({"label": f"{d.resource_id} shift", "value": state})
+    return notes
+
+
 def _episodes(ds: Dataset, decisions: list[Decision]) -> list[dict]:
     status = {row["event_id"]: row["status"] for row in executor.execute(decisions)}
     groups: dict[str, list[Decision]] = defaultdict(list)
@@ -198,6 +232,7 @@ def _episodes(ds: Dataset, decisions: list[Decision]) -> list[dict]:
         for d in items:
             row = d.model_dump(exclude_none=True)
             row["status"] = status[d.event_id]
+            row["time_context"] = _time_context(ds, d)
             decisions_out.append(row)
         episodes.append(
             {

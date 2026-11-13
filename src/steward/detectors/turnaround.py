@@ -260,7 +260,19 @@ class _Replay:
         self.roster_by_day = {d: g for d, g in roster.groupby("day")}
         req = ds.guest_requests
         self.early_requests = req[req["request_type"] == "early_checkin"]
-        self.request_language = dict(zip(req["booking_id"], req["language"], strict=False))
+        self.requests_by_booking = {
+            booking: rows.sort_values("timestamp_utc")
+            for booking, rows in req.groupby("booking_id")
+        }
+
+    def language_for(self, booking: str | None, at: pd.Timestamp) -> str:
+        """Guest language from requests already received, with an English fallback."""
+        rows = self.requests_by_booking.get(booking)
+        if rows is not None:
+            known = rows[(rows["timestamp_utc"] <= at) & rows["language"].notna()]
+            if not known.empty:
+                return str(known.iloc[-1]["language"])
+        return "en"
 
     # ------------------------------------------------------------- time helpers
 
@@ -301,18 +313,15 @@ class _Replay:
             return None
         for r in rows[rows["role"] == "robot"].itertuples():
             known_absent = r.status != "scheduled" and r.status_known_utc <= t
-            if not known_absent and r.start_utc <= t < r.end_utc and r.status == "scheduled":
+            if not known_absent and r.start_utc <= t < r.end_utc:
                 return r.resource_id
         return None
 
     def need_for(self, room: str, day, t: pd.Timestamp) -> tuple[pd.Timestamp | None, str | None]:
         """(when the next guest needs ``room`` on ``day``, booking id), from what is known at t."""
-        arr = self.arrivals_by_day.get(day)
-        if arr is None:
-            return None, None
-        arr = arr[(arr["room_id"] == room) & (arr["created_utc"] <= t)]
-        if arr.empty:
-            return None, None
+        arr = self.known_arrivals(room, day, t)
+        if len(arr) != 1:
+            return None, None  # cancellation timing unknown: no automatic promise
         booking = arr.iloc[0]["booking_id"]
         need = self.at_local(day, self.checkin_hm)
         for w in self.watches:
@@ -321,6 +330,13 @@ class _Replay:
         if (room, day) in self.waiting:  # a guest already at the door comes first
             need = min(need, self.waiting[(room, day)])
         return need, booking
+
+    def known_arrivals(self, room: str, day, t: pd.Timestamp) -> pd.DataFrame:
+        """Reservations for this room and arrival day visible by ``t``."""
+        arr = self.arrivals_by_day.get(day)
+        if arr is None:
+            return self.ds.bookings.iloc[:0]
+        return arr[(arr["room_id"] == room) & (arr["created_utc"] <= t)]
 
     def expected_vacant(self, room: Room, day, t: pd.Timestamp) -> pd.Timestamp | None:
         """When an occupied room that departs on ``day`` is expected to be vacant."""
@@ -408,7 +424,7 @@ class _Replay:
         for rid, room in self.rooms.items():
             if room.occupied or room.dirty_since is not None or room.cleaning_by is not None:
                 continue
-            if (rid, day) not in self.spare_offered and self.need_for(rid, day, t)[0] is None:
+            if (rid, day) not in self.spare_offered and self.known_arrivals(rid, day, t).empty:
                 return rid
         return None
 
@@ -547,7 +563,7 @@ class _Replay:
 
         if late and booking and episode not in self.episodes_with_notice:
             self.episodes_with_notice.add(episode)
-            lang = language or self.request_language.get(booking) or "en"
+            lang = language or self.language_for(booking, at)
             shown = eta_txt or _hhmm(
                 self.at_local(day, self.oncall_start_hm) + ONCALL_TRAVEL + pd.Timedelta(minutes=60),
                 self.tz,
@@ -584,6 +600,8 @@ class _Replay:
         day, rid = b["arr_day"], r.room_id
         if rid not in self.rooms:
             return
+        if len(self.known_arrivals(rid, day, t)) != 1:
+            return  # overlapping reservations need human reconciliation
         hm = parse_requested_time(r.text)
         if hm is None:
             return
@@ -607,6 +625,8 @@ class _Replay:
             return
         w.done = True
         day = self.day_of(w.need)
+        if len(self.known_arrivals(w.room, day, t)) != 1:
+            return  # a later booking made the room assignment uncertain
         room = self.rooms[w.room]
         ref = [f"guest_requests.csv:{w.request_id}"]
         if not room.occupied and room.dirty_since is None and room.cleaning_by is None:
@@ -767,9 +787,7 @@ class _Replay:
                     + pd.Timedelta(minutes=self.stats.clean_min * (idx + 1))
                 )
             shown = _hhmm(_ceil_quarter(eta), self.tz)
-            text, lang = render_message(
-                "eta", self.request_language.get(booking) or "en", eta=shown
-            )
+            text, lang = render_message("eta", self.language_for(booking, t), eta=shown)
             self.emit(
                 t,
                 rid,
@@ -869,7 +887,7 @@ class _Replay:
             language, requests = request.language, [request.request_id]
         else:
             evidence.append(f"events.jsonl:arrival_waiting_room {rid} {booking} at {utc_z(t)}")
-            language = self.request_language.get(booking) or "en"
+            language = self.language_for(booking, t)
         deps = []
         oncall_from = self.at_local(day, self.oncall_start_hm)
         oncall_until = self.at_local(day, self.oncall_end_hm)

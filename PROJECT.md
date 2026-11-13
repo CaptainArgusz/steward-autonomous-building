@@ -266,13 +266,13 @@ Ask the organisers on Discord (early — these affect the plan):
 
 ## 12. Status (Fri 20:30)
 
-Dev year: 111 decisions in 53 incidents, 319 look-alikes dismissed, 0 validator errors,
+Dev year: 109 decisions in 52 incidents, 314 look-alikes dismissed, 0 validator errors,
 pipeline runs in ~12 s. `uv run steward score decisions.jsonl --data-dir data/dev` prints the
 scorecard below.
 
 | Area | State |
 |---|---|
-| S01 checkout conflict | First version. 34 incidents; a decision named the room before the guest arrived in 15 of 24 recorded waits (median lead 1.2 h). Misses are mostly early arrivals with no request. |
+| S01 checkout conflict | First version. 33 incidents; a decision named the room before the guest arrived in 15 of 24 recorded waits (median lead 1.2 h). Overlapping bookings with unknown cancellation time do not trigger an automatic arrival promise. |
 | S02 water leak | First version. 5 incidents (2 loud, 2 subtle, 1 visible only in the main-vs-rooms gap), each hours to days before the BMS alarm, complaint or work order. 97 baths/showers dismissed. |
 | S03 heating vs comfort | First version. 2 incidents (heat-pump efficiency loss), opened ~5 h before rooms were affected. 26 of 29 cold complaints dismissed with a reason (24 are rooms still warming up after check-in). |
 | Logistics | Weak baseline, unchanged: 12 extra pickups ordered, 2 of 3 real overflows preceded, 10 false alarms. Fix or remove before the freeze. |
@@ -292,9 +292,9 @@ Known issues to review:
 Data-quality and causality handling: blanks stay missing; implausible and frozen readings,
 meter restarts and duplicates are masked where they are used; BMS alarms never trigger a
 decision. `tests/test_causality.py` cuts the data at a point in time and checks that every
-earlier decision is unchanged, for all detectors. Cancelled bookings are only dropped when the
-data proves the cancellation in time (`Dataset.bookings_expected`), because the data has no
-cancellation timestamp.
+earlier decision is unchanged, for all detectors. The final cancelled status is not used in
+replay planning because the data has no cancellation timestamp. Multiple known bookings for
+one arrival room remain uncertain rather than triggering an automatic promise.
 
 ## 13. Decision log
 
@@ -309,4 +309,4 @@ cancellation timestamp.
 | Fri 19:30 | LLM explains, never decides | Reproducible holdout run; no points for ungrounded output |
 | Fri 19:30 | React floor-map UI | Team choice; shows findings by floor and orientation directly |
 | Fri 19:30 | Detectors log dismissed look-alikes via `steward.audit` | Look-alike handling is otherwise invisible in `decisions.jsonl` |
-| Fri 21:00 | Cancelled bookings count as expected arrivals unless the room was provably resold a day before | `status` is a final outcome with no timestamp; dropping all cancelled bookings would use hindsight |
+| Fri 21:00 | Cancelled bookings count as expected arrivals; overlapping known bookings remain uncertain | `status` is a final outcome with no timestamp; using it to time a cancellation would be hindsight |

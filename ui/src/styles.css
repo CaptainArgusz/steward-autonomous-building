@@ -133,6 +133,10 @@ main { display: grid; grid-template-columns: minmax(420px, 5fr) minmax(420px, 6f
 .decision:first-of-type { border-top: 0; }
 .decision .head { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; margin-bottom: 4px; }
 .decision code { font-size: 12px; background: var(--surface-2); padding: 1px 6px; border-radius: 4px; }
+.time-context { margin-top: 8px; color: var(--text-2); font-size: 12px; }
+.time-context summary { cursor: pointer; width: fit-content; }
+.time-context[open] { padding: 8px; background: var(--surface-2); border-radius: 6px; }
+.time-context ul { margin: 6px 0 0; }
 dl.kv { display: grid; grid-template-columns: 96px 1fr; gap: 3px 10px; margin: 6px 0 0; font-size: 13px; }
 dl.kv dt { color: var(--text-2); }
 dl.kv dd { margin: 0; }

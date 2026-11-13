@@ -110,6 +110,9 @@ function Decision({ d, tz }) {
         {d.guest_request_ids && <><dt>Requests</dt><dd>{d.guest_request_ids.join(", ")}</dd></>}
         {d.confidence != null && <><dt>Confidence</dt><dd>{Math.round(d.confidence * 100)} %</dd></>}
       </dl>
+      {d.time_context?.length > 0 && <details className="time-context"><summary>Information used</summary>
+        <ul className="plain small">{d.time_context.map((x, i) => <li key={i}>{x.label}: {x.at ? fmtTime(x.at, tz) : x.value}</li>)}</ul>
+      </details>}
     </div>
   );
 }

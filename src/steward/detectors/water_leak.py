@@ -73,8 +73,9 @@ def interval_flow(meter: pd.Series) -> pd.Series:
         step_h = (meter.index[1] - meter.index[0]) / pd.Timedelta(hours=1)
     flow = meter.diff()
     bad = (flow < -RESET_DROP_L) | (flow > MAX_FLOW_L_PER_H * step_h)
-    # A spike reading corrupts the interval before and after it.
-    flow = flow.mask(bad | bad.shift(-1, fill_value=False) & (flow.abs() > RESET_DROP_L))
+    # A bad interval is masked when its endpoint arrives. Never rewrite the
+    # previous interval using a reading that was not yet available then.
+    flow = flow.mask(bad)
     return flow.clip(lower=0.0)
 
 

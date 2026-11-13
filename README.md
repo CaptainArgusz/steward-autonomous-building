@@ -99,6 +99,11 @@ No environment variables are required. [.env.example](.env.example) lists option
 - The data is an offline replay: no action changes later observations, so we cannot observe
   whether an action worked. Each decision instead carries a `verification_plan`.
 - There is no ground truth in the participant data. Detection quality is argued from evidence.
+- A booking becomes known at `created_utc`. The final `cancelled` status has no timestamp,
+  so replay planning does not use it to remove expected arrivals. Overlapping known bookings
+  make the arrival uncertain; the planner does not make an automatic promise for that room.
+- Roster absences apply when `status_known_utc` arrives. Later meter readings do not rewrite
+  an earlier flow calculation.
 - A detector that raises an error is logged and skipped so that a run still produces output;
   the command then exits with a non-zero status. `--strict` aborts instead.
 
