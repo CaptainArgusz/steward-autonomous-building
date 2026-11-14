@@ -165,7 +165,12 @@ export function Manager({ data, tz, onOpen, answers, onAnswer }) {
   const now = zonedInstant(day, minute, tz);
   const floorRooms = data.rooms.filter((r) => r.floor === floor);
   const actors = (info.actors || []).filter((x) => x.floor === floor);
-  const effects = (info.effects || []).filter((x) => x.floor === floor);
+  const effects = (info.effects || []).filter((x) => x.floor === floor).map((effect) => ({
+    ...effect,
+    warning_active: effect.action_ids?.length
+      ? effect.action_ids.some((id) => !answers[id])
+      : effect.requires_human_approval || effect.priority === "critical",
+  }));
 
   const followed = useRef(new Set());
   const lastFloorMinute = useRef({ day, minute });

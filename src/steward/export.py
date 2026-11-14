@@ -506,6 +506,11 @@ def _activity(ds: Dataset, decisions: list[Decision]) -> dict[str, dict[str, lis
                     "floor": floor,
                     "priority": d.priority,
                     "requires_human_approval": d.requires_human_approval,
+                    "action_ids": (
+                        [d.event_id]
+                        if d.requires_human_approval or d.priority == "critical"
+                        else []
+                    ),
                     "major": is_major,
                     "start_utc": utc_z(at),
                     "end_utc": utc_z(effect_end),
@@ -563,6 +568,7 @@ def _activity(ds: Dataset, decisions: list[Decision]) -> dict[str, dict[str, lis
             current["requires_human_approval"] = (
                 current["requires_human_approval"] or effect["requires_human_approval"]
             )
+            current["action_ids"] = sorted(set(current["action_ids"]) | set(effect["action_ids"]))
             current["start_utc"] = min(current["start_utc"], effect["start_utc"])
             current["end_utc"] = max(current["end_utc"], effect["end_utc"])
         info["effects"] = sorted(merged.values(), key=lambda x: (x["start_utc"], x["id"]))

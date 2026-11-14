@@ -177,7 +177,7 @@ function Effect({ effect, target, model, emphasized, reduced }) {
           [-target.width / 2 + 0.12, -0.2, -target.depth / 2 + 0.12],
         ]} color={color} lineWidth={emphasized ? 2.8 : 1.6} transparent opacity={emphasized ? 0.8 : 0.38} />
       )}
-      {(effect.requires_human_approval || effect.priority === "critical") && (
+      {effect.warning_active && (
         <Html position={[0, 1.3, 0]} center style={{ pointerEvents: "none" }}>
           <span className={`incident-pin ${effect.priority === "critical" ? "critical" : "approval"}`}>!</span>
         </Html>

@@ -70,3 +70,4 @@ def test_spatial_effects_are_grouped_per_incident(ds):
     assert effects[0]["kind"] == "water"
     assert effects[0]["major"] is True
     assert effects[0]["requires_human_approval"] is True
+    assert effects[0]["action_ids"] == [second.event_id]
