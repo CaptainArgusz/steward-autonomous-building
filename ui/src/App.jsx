@@ -1,23 +1,13 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { BarChart } from "./charts.jsx";
 import { STATUS, fmtTime, issue, rampColor } from "./util.js";
-import { TOUR_ORDER, featured, firstSentence, friendly, headline, isIncident, name as nice, strictest } from "./plain.js";
+import { TOUR_ORDER, featured, friendly, headline, isIncident, name as nice, strictest } from "./plain.js";
 import { IncidentStory, Light } from "./story.jsx";
 import { Manager } from "./manager.jsx";
 import { Overview } from "./overview.jsx";
+import { Lessons } from "./lessons.jsx";
 
 const DATASETS = ["quickstart", "dev", "holdout"];
 const VIEWS = [["overview", "Overview"], ["incidents", "Incidents"], ["day", "Live day"], ["lessons", "Lessons"], ["record", "Track record"]];
-
-function Seg({ value, onChange, options }) {
-  return (
-    <div className="seg" role="group">
-      {options.map(([v, label]) => (
-        <button key={v} aria-pressed={value === v} onClick={() => onChange(v)}>{label}</button>
-      ))}
-    </div>
-  );
-}
 
 /**
  * Building map: one band per floor, north rooms above the corridor, south rooms below.
@@ -113,34 +103,6 @@ function Technical({ e, tz }) {
   );
 }
 
-/** One finding: the claim and the recommendation up front, the proof on demand. */
-function Insight({ ins, active, onMap }) {
-  const spatial = ins.rooms && Object.keys(ins.rooms).length > 0;
-  return (
-    <div id={`ins-${ins.insight_id}`} className={`card insight${active ? " active" : ""}`}>
-      <div className="ihead">
-        <span className={`badge ${ins.target === "PLATO" ? "plato" : "clara"}`}>{ins.target === "PLATO" ? "PLATO · build" : "CLARA · operate"}</span>
-        <span className="muted small">{ins.insight_id}{ins.confidence != null ? ` · confidence ${Math.round(ins.confidence * 100)} %` : ""}</span>
-        <span className="spacer" />
-        {spatial && <button className={`chip mapbtn${active ? "" : " primary"}`} aria-pressed={active} onClick={onMap}>{active ? "● Shown on the map" : "Show on the map"}</button>}
-      </div>
-      <h2>{ins.topic}</h2>
-      <div className="finding">{firstSentence(ins.finding)}</div>
-      <div className="rec"><b>Recommendation</b>{ins.recommendation}</div>
-      <details className="more">
-        <summary>Show the evidence</summary>
-        {firstSentence(ins.finding) !== ins.finding && <p className="small">{ins.finding}</p>}
-        {(ins.charts || []).map((c, i) => <BarChart key={i} chart={c} />)}
-        <dl className="kv">
-          {ins.expected_benefit && <><dt>Benefit</dt><dd>{ins.expected_benefit}</dd></>}
-          {ins.uncertainty && <><dt>Uncertainty</dt><dd>{ins.uncertainty}</dd></>}
-          {ins.evidence && <><dt>Evidence</dt><dd><ul className="plain">{ins.evidence.map((x, i) => <li key={i}>{x}</li>)}</ul></dd></>}
-        </dl>
-      </details>
-    </div>
-  );
-}
-
 export default function App() {
   const params = new URLSearchParams(location.search); // ?data=dev&view=incidents&sel=<episode id>
   const [name, setName] = useState(params.get("data") || "dev");
@@ -150,14 +112,12 @@ export default function App() {
   const [scope, setScope] = useState(params.get("sel") ? "all" : "highlights");
   const [type, setType] = useState(null);
   const [sel, setSel] = useState(params.get("sel"));
-  const [mapInsight, setMapInsight] = useState(null);
-  const [target, setTarget] = useState("all");
   // simulated sign-offs by event id, shared by Incidents and Live day; kept in the browser only
   const [answers, setAnswers] = useState({});
   const onAnswer = (id, a) => setAnswers((cur) => { const n = { ...cur }; if (a) n[id] = a; else delete n[id]; return n; });
 
   useEffect(() => {
-    setData(null); setError(null); setAnswers({}); setMapInsight(null); setType(null);
+    setData(null); setError(null); setAnswers({}); setType(null);
     if (name !== (params.get("data") || "dev")) setSel(null);
     fetch(`./data/${name}.json`)
       // a dev server answers a missing file with the HTML page, so a parse failure also means "no bundle"
@@ -226,14 +186,6 @@ export default function App() {
 
   const types = [...new Set(data.episodes.map((e) => e.issue_type))].sort((x, y) => TOUR_ORDER.indexOf(x) - TOUR_ORDER.indexOf(y));
   const count = (pred) => data.episodes.filter(pred).length;
-  const insights = data.insights.filter((i) => target === "all" || i.target === target);
-  // findings with a value per room can be drawn on the floor map; the first one is shown from the start
-  const spatial = data.insights.filter((i) => i.rooms && Object.keys(i.rooms).length > 0);
-  const insight = spatial.find((i) => i.insight_id === mapInsight) || spatial[0] || null;
-  const showOnMap = (id) => {
-    setMapInsight(id);
-  };
-  const heat = insight ? { rooms: insight.rooms, label: "" } : null;
   const decided = (e) => { const p = e.decisions.filter((d) => d.autonomy !== "autonomous"); return p.length > 0 && p.every((d) => answers[d.event_id]); };
   const pickList = (v) => { setSel(null); setType(v === "highlights" || v === "all" ? null : v); setScope(v === "highlights" ? "highlights" : "all"); };
 
@@ -287,35 +239,7 @@ export default function App() {
         </div>
       )}
 
-      {view === "lessons" && (
-        <div className="page">
-          <div className="page-head">
-            <h1>Lessons for the next building</h1>
-            <p>What a year of operating PLATO-40 teaches: how CLARA should run it, and what PLATO should build differently. Each finding is computed from the data and concerns the fictional PLATO-40 only.</p>
-          </div>
-          {data.insights.length === 0 ? <div className="card empty">No findings in this dataset. They are computed from the full dev year; switch the dataset at the top right.</div> : (
-            <div className="lessons">
-              <div className="card side">
-                <div className="eyebrow">On the map now</div>
-                {!insight ? <div className="empty small">No finding in this dataset has a value per room.</div> : (
-                  <>
-                    <h2 className="maptitle">{insight.topic}</h2>
-                    <div className="muted small" style={{ marginBottom: 12 }}>Each room shows: {insight.rooms_unit || "value per room"}. Darker means higher. Use "Show on the map" on a finding to change it.</div>
-                    <FloorMap rooms={data.rooms} heat={heat} />
-                  </>
-                )}
-              </div>
-              <div className="stackcol">
-                <Seg value={target} onChange={setTarget} options={[["all", `All ${data.insights.length}`], ["PLATO", "PLATO · build"], ["CLARA", "CLARA · operate"]]} />
-                {insights.map((ins) => (
-                  <Insight key={ins.insight_id} ins={ins} active={insight?.insight_id === ins.insight_id}
-                    onMap={() => { showOnMap(ins.insight_id); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
+      {view === "lessons" && <Lessons data={data} FloorMap={FloorMap} />}
 
       {view === "record" && (
         <div className="page">

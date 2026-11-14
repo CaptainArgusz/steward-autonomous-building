@@ -269,16 +269,6 @@ ul.checks li { margin-bottom: 4px; }
 .pcol[aria-pressed="true"] .pl { color: var(--text); font-weight: 600; }
 
 /* ---- lessons ---- */
-.lessons { display: grid; grid-template-columns: 400px minmax(0, 1fr); gap: 20px; align-items: start; }
-@media (max-width: 1000px) { .lessons { grid-template-columns: 1fr; } }
-.lessons .side { position: sticky; top: 76px; }
-.insight { display: grid; gap: 12px; }
-.insight .ihead { display: flex; gap: 10px; align-items: center; }
-.insight h2 { font-size: 20px; margin: 0; line-height: 1.3; }
-.insight .finding { color: var(--text-2); }
-.insight .rec { background: var(--surface-2); border-radius: 12px; padding: 12px 16px; }
-.insight .rec b { display: block; font-size: 11px; letter-spacing: .07em; text-transform: uppercase; color: var(--text-2); margin-bottom: 2px; }
-.insight.active { box-shadow: var(--shadow), inset 0 0 0 2px var(--text); }
 
 /* ---- track record ---- */
 .record { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: start; }
@@ -385,14 +375,49 @@ ol.feed .ag { font-size: 16px; line-height: 1; width: 30px; height: 30px; border
 .manager { padding-top: 20px; gap: 16px; }
 
 /* lessons: choose which finding the floor map shows */
-.lessons .side .room { height: 34px; }
-.lessons .side { padding: 18px 20px; }
-.lessons .side .bmap { gap: 6px; }
-.lessons .side { max-height: calc(100vh - 96px); overflow: auto; }
-.chip.mapbtn[aria-pressed="true"] { background: var(--good-bg); color: var(--good-fg); border-color: transparent; font-weight: 600; }
-.chip.mapbtn.primary { padding: 5px 14px; }
 
 select.pick { width: 100%; font-size: 15px; font-weight: 600; padding: 10px 14px; border-radius: 12px; border: 1.5px solid var(--line); background: var(--surface); color: var(--text); }
 select.pick:hover { border-color: var(--text-3); }
 .keyline { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; color: var(--text-2); border-top: 1px solid var(--line); padding-top: 10px; }
-.maptitle { font-size: 18px !important; line-height: 1.3; margin: 8px 0 6px !important; }
+
+/* ---- lessons ---- */
+.lessontiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+@media (max-width: 900px) { .lessontiles { grid-template-columns: 1fr; } }
+.ltile { text-align: left; border: 0; border-radius: var(--radius); padding: 18px 22px; display: grid; grid-template-columns: auto 1fr; gap: 16px; align-items: center; box-shadow: var(--shadow); background: var(--surface); transition: transform .15s, box-shadow .15s; }
+.ltile:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
+.ltile > b { font-size: 44px; font-weight: 700; letter-spacing: -.03em; line-height: 1; font-variant-numeric: tabular-nums; }
+.ltile span { display: grid; font-size: 13px; color: var(--text-2); }
+.ltile strong { font-size: 17px; color: var(--text); }
+.ltile.plato > b { color: #5a3ea6; } .ltile.clara > b { color: #1d5fae; } .ltile.checked > b { color: var(--text-3); }
+.ltile[aria-pressed="true"] { box-shadow: var(--shadow), inset 0 0 0 2px var(--text); }
+.lesson { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: 32px; padding: 26px 28px; align-items: start; }
+@media (max-width: 1000px) { .lesson { grid-template-columns: 1fr; } }
+.lesson .visual { display: grid; gap: 10px; align-content: start; }
+.lesson .visual .room { height: 30px; border-radius: 6px; }
+.lesson .visual .room .rno { font-size: 11px; line-height: 1.1; }
+.lesson .visual .room .val { font-size: 10px; line-height: 1.1; }
+.lesson .visual .bmap { gap: 5px; }
+.lesson .visual .rows { padding: 4px; }
+.lesson .visual .row { gap: 3px; }
+.lesson .visual .chart { margin-top: 0; }
+.lesson .ltext { display: grid; gap: 12px; align-content: start; }
+.lesson .ihead { display: flex; gap: 10px; align-items: center; }
+.lesson h2 { font-size: 24px; line-height: 1.25; letter-spacing: -.02em; margin: 0; }
+.lesson .finding { color: var(--text-2); }
+.lesson .rec { border-radius: 14px; padding: 16px 20px; display: grid; gap: 6px; border-left: 5px solid; }
+.lesson.plato .rec { background: #f3f0fb; border-color: #7958bd; } .lesson.plato .rec .eyebrow { color: #5a3ea6; }
+.lesson.clara .rec { background: #edf5fd; border-color: #2a78d6; } .lesson.clara .rec .eyebrow { color: #1d5fae; }
+.lesson .rec .lead { font-size: 19px; font-weight: 650; line-height: 1.35; letter-spacing: -.01em; }
+.lesson .rec p + p { color: var(--text-2); font-size: 14px; }
+.lesson .gain { font-size: 14px; color: var(--text-2); }
+.lesson .gain b { color: var(--text); }
+.conf { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; color: var(--text-2); white-space: nowrap; }
+.conf i { width: 56px; height: 6px; border-radius: 999px; background: var(--surface-2); overflow: hidden; display: block; }
+.conf i b { display: block; height: 100%; background: var(--text); border-radius: 999px; }
+.checked { padding: 8px 24px; }
+.checked details { border-top: 1px solid var(--line); padding: 12px 0; }
+.checked details:first-child { border-top: 0; }
+.checked summary { cursor: pointer; list-style: none; display: flex; gap: 12px; align-items: center; font-weight: 600; }
+.checked summary::-webkit-details-marker { display: none; }
+.checked .no { width: 22px; height: 22px; border-radius: 50%; background: var(--surface-2); color: var(--text-3); display: grid; place-items: center; font-size: 11px; flex: none; }
+.checked p { margin: 8px 0 0 34px; font-size: 14px; }
