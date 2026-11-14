@@ -201,9 +201,12 @@ export default function App() {
   const [period, setPeriod] = useState(null);
   const [mapInsight, setMapInsight] = useState(null);
   const [target, setTarget] = useState("all");
+  // simulated sign-offs by event id, shared by Incidents and Live day; kept in the browser only
+  const [answers, setAnswers] = useState({});
+  const onAnswer = (id, a) => setAnswers((cur) => { const n = { ...cur }; if (a) n[id] = a; else delete n[id]; return n; });
 
   useEffect(() => {
-    setData(null); setError(null); setRoom(null); setMapInsight(null); setPeriod(null); setType(null);
+    setData(null); setError(null); setAnswers({}); setRoom(null); setMapInsight(null); setPeriod(null); setType(null);
     if (name !== (params.get("data") || "dev")) setSel(null);
     fetch(`./data/${name}.json`)
       // a dev server answers a missing file with the HTML page, so a parse failure also means "no bundle"
@@ -279,6 +282,7 @@ export default function App() {
   const insights = data.insights.filter((i) => target === "all" || i.target === target);
   const insight = mapInsight != null ? data.insights.find((i) => i.insight_id === mapInsight) : null;
   const heat = insight ? { rooms: insight.rooms, label: insight.rooms_unit || "" } : null;
+  const decided = (e) => { const p = e.decisions.filter((d) => d.autonomy !== "autonomous"); return p.length > 0 && p.every((d) => answers[d.event_id]); };
   const filter = (fn) => { fn(); setScope("all"); setSel(null); };
 
   return (
@@ -287,7 +291,7 @@ export default function App() {
 
       {view === "overview" && <Overview data={data} go={go} />}
 
-      {view === "day" && <Manager data={data} tz={tz} onOpen={open} />}
+      {view === "day" && <Manager data={data} tz={tz} onOpen={open} answers={answers} onAnswer={onAnswer} />}
 
       {view === "incidents" && (
         <div className="page">
@@ -335,14 +339,14 @@ export default function App() {
                     <button key={e.id} id={`inc-${e.id}`} className="item" aria-pressed={selected?.id === e.id} onClick={() => setSel(e.id)}>
                       <span className="bar" style={{ background: issue(e.issue_type).color }} />
                       <span><span className="title">{headline(e)}</span><span className="sub">{issue(e.issue_type).label} · {fmtTime(e.start, tz)}</span></span>
-                      <Light autonomy={strictest(e)} short />
+                      {decided(e) ? <span className="light done">Decided</span> : <Light autonomy={strictest(e)} short />}
                     </button>
                   ))}
                 </div>
               )}
             </div>
             {selected
-              ? <IncidentStory key={selected.id} e={selected} tz={tz} outcome={data.scorecard?.matched?.[selected.id]} Technical={Technical}
+              ? <IncidentStory key={selected.id} e={selected} tz={tz} outcome={data.scorecard?.matched?.[selected.id]} Technical={Technical} answers={answers} onAnswer={onAnswer}
                   locator={selected.rooms.length > 0 && <FloorMap rooms={data.rooms} highlight={selected.rooms} focus />} />
               : <div className="card empty">No incidents in this dataset.</div>}
           </div>

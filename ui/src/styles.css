@@ -299,13 +299,6 @@ ul.checks li { margin-bottom: 4px; }
 
 /* ---- live day ---- */
 .manager { padding: 28px 28px 64px; display: grid; gap: 20px; align-content: start; max-width: 1320px; width: 100%; margin: 0 auto; }
-.mgr-top { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; justify-content: space-between; }
-.clock { display: flex; align-items: center; gap: 16px; background: var(--surface); box-shadow: var(--shadow); border-radius: 999px; padding: 8px 22px 8px 8px; }
-.clock .play { width: 44px; height: 44px; border-radius: 50%; border: 0; background: var(--text); color: #fff; font-size: 15px; }
-.clock .time { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; letter-spacing: -.02em; }
-.clock input[type="range"] { width: 280px; accent-color: var(--text); }
-.daypick { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-.daypick select { font-size: 13px; padding: 5px 8px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--text-2); }
 .brief h2 { font-size: 24px !important; font-weight: 550; letter-spacing: -.02em; }
 .brief .need { color: var(--stop-fg); font-weight: 700; }
 .brief .facts { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 10px; font-size: 14px; }
@@ -314,7 +307,6 @@ ul.checks li { margin-bottom: 4px; }
 .mgr-grid { display: grid; grid-template-columns: minmax(480px, 1.05fr) 1fr; gap: 20px; align-items: start; }
 @media (max-width: 1100px) { .mgr-grid { grid-template-columns: 1fr; } }
 .mgr-side { display: grid; gap: 20px; }
-.manager .card + .card { margin: 0; }
 .count { display: inline-block; min-width: 22px; padding: 0 7px; border-radius: 11px; background: var(--critical); color: #fff; font-size: 12px; text-align: center; margin-left: 6px; }
 .count.zero { background: var(--surface-2); color: var(--text-2); }
 .ask { background: var(--warn-bg); border-radius: 14px; padding: 14px 16px; margin-bottom: 10px; display: grid; gap: 6px; }
@@ -340,3 +332,50 @@ ol.feed .ag { font-size: 16px; line-height: 1; width: 30px; height: 30px; border
 .s-u { background: var(--surface) !important; color: var(--text-3); }
 .toasts { position: fixed; bottom: 20px; right: 20px; display: grid; gap: 8px; z-index: 40; width: 330px; }
 .toast { background: var(--surface); border-left: 4px solid var(--critical); border-radius: 14px; padding: 12px 14px; box-shadow: var(--shadow-lg); animation: fadein .3s ease; cursor: pointer; display: grid; gap: 4px; }
+
+/* ---- sign-off (shared by Incidents and Live day) ---- */
+.light.done { background: var(--surface-2); color: var(--text-2); } .light.done::before { background: var(--text-3); }
+.groups .signoff { grid-column: 1 / -1; border: 1.5px solid var(--text); border-radius: 14px; padding: 14px 16px; display: grid; gap: 4px; font-size: 14px; }
+.signrow { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 16px; padding-top: 10px; margin-top: 6px; border-top: 1px solid var(--line); }
+.answer { display: inline-flex; align-items: center; gap: 10px; font-weight: 600; font-size: 13px; }
+.answer.approved, .answer.seen { color: var(--good-fg); } .answer.rejected { color: var(--stop-fg); }
+.answered { border-top: 1px solid var(--line); padding-top: 10px; }
+.answered > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; align-items: center; }
+.rowhead { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+.rowhead h2 { margin: 0; }
+
+/* ---- live day: pick a day, play it ---- */
+.daycard { display: grid; gap: 10px; }
+.dayrow { display: flex; flex-wrap: wrap; gap: 10px; align-items: stretch; }
+.daybtn { text-align: left; border: 1.5px solid var(--line); background: var(--surface); border-radius: 14px; padding: 10px 16px; display: grid; gap: 2px; }
+.daybtn:hover { border-color: var(--text-3); }
+.daybtn b { font-size: 15px; }
+.daybtn span { font-size: 12px; color: var(--text-2); }
+.daybtn[aria-pressed="true"] { background: var(--text); border-color: var(--text); color: #fff; }
+.daybtn[aria-pressed="true"] span { color: rgba(255, 255, 255, .75); }
+.anyday { margin-left: auto; display: grid; gap: 4px; align-content: center; justify-items: end; }
+.anyday > div { display: flex; gap: 6px; align-items: center; }
+.anyday input { font: inherit; font-size: 13px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--text); }
+.player { display: flex; flex-wrap: wrap; align-items: center; gap: 18px; }
+.player .play { width: 52px; height: 52px; border-radius: 50%; border: 0; background: var(--text); color: #fff; font-size: 17px; flex: none; }
+.player .now { min-width: 190px; }
+.player .time { font-size: 34px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; letter-spacing: -.02em; }
+.track { flex: 1; min-width: 260px; display: grid; gap: 2px; }
+.track input[type="range"] { width: 100%; margin: 0; accent-color: var(--text); }
+.track .marks { position: relative; height: 12px; margin: 0 8px; }
+.track .marks i { position: absolute; bottom: 0; width: 4px; height: 8px; margin-left: -2px; border-radius: 2px; background: var(--good); opacity: .7; }
+.track .marks i.hot { background: var(--warning); height: 12px; opacity: 1; }
+.track .hours { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+
+/* ---- tilted building view (CSS transforms only) ---- */
+.iso-wrap { height: 620px; display: grid; place-items: center; overflow: hidden; }
+.iso { position: relative; width: 430px; height: 150px; transform: translateY(205px) rotateX(62deg) rotateZ(-30deg); transform-style: preserve-3d; }
+.iso-floor { position: absolute; inset: 0; transform-style: preserve-3d; }
+.iso-floor .rows { height: 100%; grid-template-rows: 1fr auto 1fr; background: rgba(226, 230, 236, .92); box-shadow: -10px 10px 0 rgba(16, 24, 40, .10), 0 0 0 1px #d5dae2; transform-style: preserve-3d; }
+.iso-floor .row { transform-style: preserve-3d; }
+.iso-floor .room { height: 100%; min-height: 0; transform: translateZ(10px); box-shadow: -4px 4px 0 rgba(16, 24, 40, .16); border-radius: 6px; }
+.iso-floor .room .rno { font-size: 13px; font-weight: 700; }
+.iso-floor .room.ring { animation: lift 1s ease-in-out infinite alternate; box-shadow: -4px 4px 0 var(--warning); }
+.iso-floor .room .bell { font-size: 14px; }
+@keyframes lift { from { transform: translateZ(10px); } to { transform: translateZ(34px); } }
+.iso-label { position: absolute; right: 100%; bottom: 0; margin-right: 14px; white-space: nowrap; font-size: 15px; font-weight: 700; color: var(--text-2); }
