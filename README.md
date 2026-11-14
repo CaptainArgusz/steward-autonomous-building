@@ -12,10 +12,6 @@ each action would be verified.
 > PLATO-40 is a synthetic reference property. Nothing here is a statement about real PLATO
 > buildings or about CLARA. All effects of actions are simulated; no savings are measured.
 
-**Status: work in progress.** The three mandatory scenarios (checkout conflict, water leak,
-heating vs comfort) have a first working version, the insights report has 12 findings, and
-there is a web UI with a replayable Live Day and a real-time 3D floor view. See
-[PROJECT.md](PROJECT.md) §12 for results and known issues.
 
 ## Run it
 
@@ -90,10 +86,6 @@ make check                                                    # lint, tests, qui
 | [insights.md](insights.md) | Feedback for CLARA and PLATO, and the target architecture |
 | tag `pre-holdout` | The code state before the holdout dataset was released |
 
-## Changes after `pre-holdout`
-
-None yet. Every change to pipeline behaviour after the tag is listed here with its reason.
-
 ## How it works
 
 ```
@@ -132,7 +124,7 @@ delivered).
 
 ## Environment
 
-No environment variables are required. [.env.example](.env.example) lists optional ones.
+Groq API key is required.
 
 ## Assumptions and limitations
 
