@@ -149,16 +149,10 @@ export function Manager({ data, tz, onOpen, answers, onAnswer }) {
   const cleaners = info.staff.filter((s) => s.role === "cleaner");
   const absent = cleaners.filter((s) => s.status !== "scheduled" && knownNow(s));
   const robots = info.staff.filter((s) => s.role === "robot" && (s.status === "scheduled" || !knownNow(s)));
-  const greet = minute < 12 * 60 ? "Good morning" : minute < 18 * 60 ? "Good afternoon" : "Good evening";
   const di = days.indexOf(day);
 
   return (
     <div className="manager">
-      <div className="page-head">
-        <h1>A day in the building</h1>
-        <p>Pick a day, then play it. The building, the agents' actions and the approvals waiting for the duty manager update as the clock moves.</p>
-      </div>
-
       <div className="card daycard">
         <div className="eyebrow">1 · Pick a day</div>
         <div className="dayrow">
@@ -199,7 +193,16 @@ export function Manager({ data, tz, onOpen, answers, onAnswer }) {
             {upcoming ? `Jump to next action · ${hhmm(upcoming.minute)}` : "No more actions today"}
           </button>
         </div>
-        <div className="muted small">Each mark on the line is an action by Steward; amber marks need a person. Steward only knows what had happened by {hhmm(minute)}.</div>
+        <div className="facts">
+          <span className="go"><b>{handled.length}</b> handled automatically</span>
+          <span className={inbox.length ? "need" : ""}><b>{inbox.length}</b> need{inbox.length === 1 ? "s" : ""} you</span>
+          <i />
+          <span>🛬 {info.arrivals} arrivals</span>
+          <span>🧳 {info.departures} departures</span>
+          <span>🧹 {cleaners.length - absent.length} of {cleaners.length} cleaners on shift{absent.length ? <b className="warn"> · {absent.map((s) => name(s.id)).join(", ")} absent</b> : ""}</span>
+          <span>🤖 {robots.length} robots available</span>
+        </div>
+        <div className="muted small">Marks on the line are Steward's actions; amber ones need a person. Steward only knows what had happened by {hhmm(minute)}.</div>
       </div>
 
       {stale && (
@@ -208,16 +211,6 @@ export function Manager({ data, tz, onOpen, answers, onAnswer }) {
           Dates, the inbox and the agent feed still work. Run <code>make ui-data</code> to create it, then reload.
         </div>
       )}
-      <div className="card brief">
-        <h2>{greet}. Steward handled <b>{handled.length}</b> thing{handled.length === 1 ? "" : "s"} on its own so far. {inbox.length ? <span className="need">{inbox.length} need{inbox.length === 1 ? "s" : ""} you.</span> : "Nothing needs you right now."}</h2>
-        <div className="facts">
-          <span>🛬 {info.arrivals} arrivals</span>
-          <span>🧳 {info.departures} departures</span>
-          <span>🧹 {cleaners.length - absent.length} of {cleaners.length} cleaners on shift{absent.length ? <b className="warn"> · {absent.map((s) => name(s.id)).join(", ")} absent</b> : ""}</span>
-          <span>🤖 {robots.length} robots available</span>
-        </div>
-      </div>
-
       <div className="mgr-grid">
         <div className="card">
           <div className="rowhead">

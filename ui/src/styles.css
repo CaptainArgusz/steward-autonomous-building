@@ -299,11 +299,6 @@ ul.checks li { margin-bottom: 4px; }
 
 /* ---- live day ---- */
 .manager { padding: 28px 28px 64px; display: grid; gap: 20px; align-content: start; max-width: 1320px; width: 100%; margin: 0 auto; }
-.brief h2 { font-size: 24px !important; font-weight: 550; letter-spacing: -.02em; }
-.brief .need { color: var(--stop-fg); font-weight: 700; }
-.brief .facts { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 10px; font-size: 14px; }
-.brief .facts > span { background: var(--surface-2); border-radius: 999px; padding: 4px 12px; }
-.brief .warn { color: var(--stop-fg); }
 .mgr-grid { display: grid; grid-template-columns: minmax(480px, 1.05fr) 1fr; gap: 20px; align-items: start; }
 @media (max-width: 1100px) { .mgr-grid { grid-template-columns: 1fr; } }
 .mgr-side { display: grid; gap: 20px; }
@@ -379,3 +374,12 @@ ol.feed .ag { font-size: 16px; line-height: 1; width: 30px; height: 30px; border
 .iso-floor .room .bell { font-size: 14px; }
 @keyframes lift { from { transform: translateZ(10px); } to { transform: translateZ(34px); } }
 .iso-label { position: absolute; right: 100%; bottom: 0; margin-right: 14px; white-space: nowrap; font-size: 15px; font-weight: 700; color: var(--text-2); }
+
+/* live day: status of the chosen moment, inside the day card */
+.daycard .facts { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 6px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 14px; }
+.daycard .facts > span { background: var(--surface-2); border-radius: 999px; padding: 4px 12px; }
+.daycard .facts > i { width: 1px; height: 20px; background: var(--line); margin: 0 4px; }
+.daycard .facts .go { background: var(--good-bg); color: var(--good-fg); }
+.daycard .facts .need { background: var(--stop-bg); color: var(--stop-fg); font-weight: 600; }
+.daycard .facts .warn { color: var(--stop-fg); }
+.manager { padding-top: 20px; gap: 16px; }
