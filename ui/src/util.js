@@ -5,6 +5,7 @@ export const ISSUES = {
   ventilation_maintenance: { label: "Ventilation / sensors", cls: "t-ventilation_maintenance", color: "var(--vent)" },
   occupancy_surge: { label: "Weekend capacity", cls: "t-occupancy_surge", color: "var(--surge)" },
   logistics: { label: "Logistics", cls: "t-logistics", color: "var(--logi)" },
+  energy_optimization: { label: "Energy plan", cls: "t-energy_optimization", color: "var(--energy, #2f8f5b)" },
 };
 export const issue = (t) => ISSUES[t] || { label: t.replaceAll("_", " "), cls: "t-other", color: "var(--other)" };
 

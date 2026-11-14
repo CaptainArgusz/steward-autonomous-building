@@ -47,6 +47,13 @@ PROBES = (
         pd.Timedelta(0),
     ),
     Probe(
+        "vending_empty",
+        "Vending machine ran out of a product",
+        "logistics",
+        pd.Timedelta(hours=96),
+        pd.Timedelta(0),
+    ),
+    Probe(
         "cold_complaint",
         "Guest reported a cold room",
         "heating_comfort",
@@ -85,6 +92,8 @@ def _outcomes(ds: Dataset) -> dict[str, list[tuple[pd.Timestamp, str | None]]]:
     out["guest_waited"] = list(zip(waits["timestamp_utc"], waits["room_id"], strict=True))
     full = ev[(ev["type"] == "waste_bin_full")]
     out["container_full"] = list(zip(full["timestamp_utc"], full["asset_id"], strict=True))
+    empty = ev[ev["type"] == "vending_out_of_stock"]
+    out["vending_empty"] = list(zip(empty["timestamp_utc"], empty["asset_id"], strict=True))
     cold = gr[gr["request_type"] == "temperature_cold"]
     out["cold_complaint"] = [(t, None) for t in cold["timestamp_utc"]]
     wet = gr[gr["request_type"] == "water_issue"]

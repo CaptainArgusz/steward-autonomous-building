@@ -337,6 +337,8 @@ def detect(ds: Dataset) -> list[Decision]:
             ds.room_telemetry["timestamp_utc"].dt.minute == 0, ["timestamp_utc", "room_id"]
         ]
     ).set_index(["timestamp_utc", "room_id"])["stay_booking_id"]
+    # Duplicate telemetry rows give duplicate keys; .get() would then return a Series.
+    stay_ids = stay_ids[~stay_ids.index.duplicated(keep="last")]
 
     decisions: list[Decision] = []
     episode: _Episode | None = None

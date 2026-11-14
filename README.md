@@ -83,6 +83,11 @@ data dir ─► Dataset ─► detectors ─► Decision[] ─► decisions.json
 - S05 uses the same room replay and capacity queue as S01 to identify weekend arrival
   shortfalls after a known cleaner absence. It proposes one coordination plan, a request
   for extra capacity and conditional guest updates without counting on-call help in advance.
+- Logistics orders an extra waste pickup or vending restock when the trailing use rate (plus,
+  for vending, guest-hours already booked) projects a shortfall before the regular service, and
+  sends a robot to carry floor bins on days a cleaner is known absent.
+- Energy plans the battery for the next day once prices are published and acts only when the plan
+  clearly beats the battery's recent routine; every saving is a simulated estimate.
 - **`steward.contract`** defines the `Decision` model after `DECISION_CONTRACT.md`. It rejects
   decisions that break the autonomy rules — for example `dispatch_technician` or `block_room`
   without `requires_human_approval`, or guest consent without approval — and derives the

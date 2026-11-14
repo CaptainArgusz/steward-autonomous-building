@@ -53,6 +53,7 @@ def truncated(ds, cut):
         "ventilation_maintenance",
         "occupancy_surge",
         "logistics",
+        "energy_optimization",
     ],
 )
 @pytest.mark.parametrize("fraction", [0.45, 0.7])

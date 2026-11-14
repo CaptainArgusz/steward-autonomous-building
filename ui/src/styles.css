@@ -99,6 +99,7 @@ main { display: grid; grid-template-columns: minmax(420px, 5fr) minmax(420px, 6f
 .t-heating_comfort { background: var(--heat); }
 .t-room_turnaround { background: var(--turn); }
 .t-logistics { background: var(--logi); }
+.t-energy_optimization { background: var(--energy, #2f8f5b); }
 .t-ventilation_maintenance { background: var(--vent); }
 .t-occupancy_surge { background: var(--surge); }
 .t-other { background: var(--other); }

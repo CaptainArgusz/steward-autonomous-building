@@ -62,7 +62,7 @@ function FloorMap({ rooms, episodes, selectedRoom, onRoom, heat }) {
         <div className="ramp"><span>{lo}</span><i /><span>{hi}</span><span>· {heat.label}</span></div>
       ) : (
         <div className="legend">
-          {["room_turnaround", "water_leak", "heating_comfort", "ventilation_maintenance", "occupancy_surge", "logistics"].map((t) => (
+          {["room_turnaround", "water_leak", "heating_comfort", "ventilation_maintenance", "occupancy_surge", "logistics", "energy_optimization"].map((t) => (
             <span key={t}><i className="swatch" style={{ background: issue(t).color }} />{issue(t).label}</span>
           ))}
           <span>number = incidents in that room · ◡ bathtub</span>
