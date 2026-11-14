@@ -19,6 +19,7 @@ import pandas as pd
 from steward import executor
 from steward.contract import Decision, utc_z, validate_file
 from steward.dataset import Dataset
+from steward.recommendations import evidence_for
 
 PRIORITY_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 PAD = pd.Timedelta(hours=48)
@@ -585,6 +586,7 @@ def build(
 ) -> dict:
     ds = Dataset(data_dir)
     report = validate_file(decisions_path, ds)
+    learning = evidence_for(ds)
     return {
         "meta": {
             "profile": ds.profile,
@@ -608,7 +610,10 @@ def build(
         ],
         "episodes": _episodes(ds, report.decisions),
         "dismissed": _jsonl(Path(dismissed_path)) if dismissed_path else [],
-        "insights": _jsonl(Path(insights_path)) if insights_path else [],
+        "insights": _jsonl(Path(insights_path))
+        if insights_path
+        else [item for item in learning["observations"] if "target" in item],
+        "learning": learning,
         "scorecard": scorecard,
     }
 

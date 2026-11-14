@@ -1,6 +1,12 @@
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
+import { fileURLToPath } from "node:url";
+import { recommendationsPlugin } from "./recommendations-plugin.js";
 
-// Relative base so the built site works from any path (GitHub Pages, file server).
-// insights.md in the repo root is read at build time by the Lessons page.
-export default defineConfig({ plugins: [react()], base: "./", server: { fs: { allow: [".."] } } });
+const root = fileURLToPath(new URL("../", import.meta.url));
+
+export default defineConfig(({ mode }) => ({
+  plugins: [react(), recommendationsPlugin(() => loadEnv(mode, root, "GROQ_"))],
+  base: "./",
+  server: { fs: { allow: [".."] } },
+}));

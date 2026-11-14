@@ -427,3 +427,5 @@ select.pick:hover { border-color: var(--text-3); }
 .checked summary::-webkit-details-marker { display: none; }
 .checked .no { width: 22px; height: 22px; border-radius: 50%; background: var(--surface-2); color: var(--text-3); display: grid; place-items: center; font-size: 11px; flex: none; }
 .checked p { margin: 8px 0 0 34px; font-size: 14px; }
+
+.lesson-error { color: #8a4216; }

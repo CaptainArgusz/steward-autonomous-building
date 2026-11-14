@@ -127,7 +127,11 @@ def main(argv: list[str] | None = None) -> int:
     ui = sub.add_parser("ui", help="run the pipeline and write the data bundle for the web UI")
     ui.add_argument("data_dir")
     ui.add_argument("--out", help="bundle path (default: ui/public/data/<profile>.json)")
-    ui.add_argument("--insights", default="insights.jsonl", help="insights file to include")
+    ui.add_argument(
+        "--insights",
+        default=None,
+        help="optional insights file for the overview; Lessons always analyses the selected dataset",
+    )
     ui.set_defaults(func=_cmd_ui)
 
     score = sub.add_parser("score", help="score decisions against outcomes recorded in the replay")

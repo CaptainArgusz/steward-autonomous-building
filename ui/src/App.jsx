@@ -239,7 +239,7 @@ export default function App() {
         </div>
       )}
 
-      {view === "lessons" && <Lessons data={data} FloorMap={FloorMap} />}
+      {view === "lessons" && <Lessons key={`${data.meta.profile}/${data.meta.start}/${data.meta.end}`} data={data} FloorMap={FloorMap} />}
 
       {view === "record" && (
         <div className="page">

@@ -1,14 +1,18 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { BarChart } from "./charts.jsx";
 import { cap, firstSentence } from "./plain.js";
-// The hypotheses that were tested and not supported live in insights.md only; read them at build time.
-import insightsMd from "../../insights.md?raw";
-
-/** "- **Title.** explanation" lines of the "Checked and not found" section. */
-const CHECKED = (() => {
-  const section = (insightsMd.split(/^## Checked and not found\s*$/m)[1] || "").split(/^## /m)[0];
-  return [...section.matchAll(/^- \*\*(.+?)\*\*\s*(.+)$/gm)].map((m) => ({ title: m[1].replace(/\.$/, ""), text: m[2] }));
-})();
+async function loadRecommendations(profile, mode, signal) {
+  const response = await fetch(`${import.meta.env.BASE_URL}api/recommendations`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ profile, mode }), signal,
+  });
+  if (!response.headers.get("Content-Type")?.includes("application/json")) {
+    throw new Error("Open Steward through make ui to generate recommendations.");
+  }
+  const payload = await response.json();
+  if (!response.ok || payload.error) throw new Error(payload.error || "The report could not be generated.");
+  return payload;
+}
 
 const KIND = {
   PLATO: { cls: "plato", badge: "PLATO · build", verb: "Build it differently", title: "Build differently", sub: "Design changes for the next PLATO building" },
@@ -22,7 +26,7 @@ function split(text) {
 }
 
 /** One lesson: what the year showed (map or chart) on the left, what to change on the right. */
-function Lesson({ ins, rooms, FloorMap }) {
+function Lesson({ ins, rooms, FloorMap, observations }) {
   const k = KIND[ins.target] || KIND.CLARA;
   const spatial = ins.rooms && Object.keys(ins.rooms).length > 0;
   const charts = ins.charts || [];
@@ -32,7 +36,7 @@ function Lesson({ ins, rooms, FloorMap }) {
   return (
     <article className={`card lesson ${k.cls}`}>
       <div className="visual">
-        <div className="eyebrow">What the year showed</div>
+        <div className="eyebrow">What the data showed</div>
         {spatial ? (
           <>
             <FloorMap rooms={rooms} heat={{ rooms: ins.rooms, label: "" }} />
@@ -43,9 +47,9 @@ function Lesson({ ins, rooms, FloorMap }) {
       <div className="ltext">
         <div className="ihead">
           <span className={`badge ${k.cls}`}>{k.badge}</span>
-          <span className="muted small">{ins.insight_id}</span>
+          <span className="muted small">{ins.insight_id} · AI recommendation</span>
           <span className="spacer" />
-          {pct != null && <span className="conf" title="Our confidence in the finding"><i><b style={{ width: `${pct}%` }} /></i>{pct} % confident</span>}
+          {pct != null && <span className="conf" title="Confidence in the computed observation; recommendation priority is advisory"><i><b style={{ width: `${pct}%` }} /></i>{pct} % confident</span>}
         </div>
         <h2>{ins.topic}</h2>
         <p className="finding">{short}</p>
@@ -54,7 +58,10 @@ function Lesson({ ins, rooms, FloorMap }) {
           <p className="lead">{lead}</p>
           {rest && <p>{rest}</p>}
         </div>
+        {ins.why_it_fits && <p><b>Why it matters.</b> {ins.why_it_fits}</p>}
         {ins.expected_benefit && <p className="gain"><b>What it gains.</b> {ins.expected_benefit}</p>}
+        {ins.trade_off && <p className="gain"><b>Trade-off.</b> {ins.trade_off}</p>}
+        {ins.next_check && <p className="gain"><b>Before committing.</b> {ins.next_check}</p>}
         <details className="more">
           <summary>How sure are we? Show the proof</summary>
           <dl className="kv">
@@ -62,6 +69,10 @@ function Lesson({ ins, rooms, FloorMap }) {
             {short !== ins.finding && <><dt>Full finding</dt><dd>{ins.finding}</dd></>}
             {ins.comparison && <><dt>Compared</dt><dd>{ins.comparison}</dd></>}
             {ins.evidence && <><dt>Evidence</dt><dd><ul className="plain">{ins.evidence.map((x, i) => <li key={i}>{x}</li>)}</ul></dd></>}
+            {ins.evidence_ids?.slice(1).map((id) => {
+              const other = observations.find((o) => o.insight_id === id);
+              return other && <React.Fragment key={id}><dt>{id} · {other.topic}</dt><dd>{other.finding}<p>{other.uncertainty}</p></dd></React.Fragment>;
+            })}
           </dl>
           {(spatial ? charts : charts.slice(1)).map((c, i) => <BarChart key={i} chart={c} />)}
         </details>
@@ -70,52 +81,92 @@ function Lesson({ ins, rooms, FloorMap }) {
   );
 }
 
-/** Lessons: what to build and operate differently, each with its proof, plus what was tested and rejected. */
+/** Recommendations keep the same evidence/map cards as the original Lessons page. */
 export function Lessons({ data, FloorMap }) {
   const [show, setShow] = useState("all");
-  const of = (t) => data.insights.filter((i) => i.target === t);
+  const [evidence, setEvidence] = useState(data.learning || null);
+  const [report, setReport] = useState(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    setError("");
+    setReport(null);
+    setShow("all");
+    const load = async () => {
+      try {
+        const observed = await loadRecommendations(data.meta.profile, "evidence", controller.signal);
+        if (controller.signal.aborted) return;
+        setEvidence(observed.evidence);
+        const result = await loadRecommendations(data.meta.profile, "recommend", controller.signal);
+        if (controller.signal.aborted) return;
+        setEvidence(result.evidence);
+        setReport(result.report);
+      } catch (e) {
+        if (!controller.signal.aborted) setError(e.message);
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    };
+    load();
+    return () => controller.abort();
+  }, [data.meta.profile]);
+
+  const observations = evidence?.observations || [];
+  const checked = evidence?.checked || [];
+  const lessons = (report?.recommendations || []).map((rec, index) => ({
+    ...observations.find((item) => item.insight_id === rec.evidence_ids[0]),
+    ...rec, insight_id: `AI-${index + 1}`,
+  }));
+  const of = (t) => lessons.filter((i) => i.target === t);
   const groups = ["PLATO", "CLARA"].filter((t) => of(t).length > 0 && (show === "all" || show === t));
   const tiles = [
     ["PLATO", of("PLATO").length, KIND.PLATO.title, KIND.PLATO.sub],
     ["CLARA", of("CLARA").length, KIND.CLARA.title, KIND.CLARA.sub],
-    ["checked", CHECKED.length, "Checked, not supported", "Ideas we tested that the data did not back"],
+    ["checked", checked.length, "Hypotheses checked", "Results and uncertainties from this dataset"],
   ];
   return (
     <div className="page">
       <div className="page-head">
-        <h1>What a year teaches the next building</h1>
-        <p>Each lesson pairs what the data showed with one change, and says how sure we are. Computed from the full dev year of the fictional PLATO-40; no saving is measured.</p>
+        <h1>What the data teaches the next building</h1>
       </div>
-      {data.insights.length === 0 ? <div className="card empty">No findings in this dataset. They are computed from the full dev year; switch the dataset at the top right.</div> : (
-        <>
-          <div className="lessontiles">
-            {tiles.map(([key, n, title, sub]) => (
-              <button key={key} className={`ltile ${key.toLowerCase()}`} aria-pressed={show === key} onClick={() => setShow(show === key ? "all" : key)}>
-                <b>{n}</b><span><strong>{title}</strong>{sub}</span>
-              </button>
-            ))}
-          </div>
-          {groups.map((t) => (
-            <section key={t} className="stackcol">
-              <div className="section-title"><h2>{KIND[t].title}</h2><span className="muted small">{KIND[t].sub}</span></div>
-              {of(t).map((ins) => <Lesson key={ins.insight_id} ins={ins} rooms={data.rooms} FloorMap={FloorMap} />)}
-            </section>
+      {loading && <p className="muted small" role="status">Preparing recommendations from the selected dataset…</p>}
+      {error && <p className="lesson-error" role="alert">{error} Reload Lessons to try again.</p>}
+      {report && <>
+        <div className="lessontiles">
+          {tiles.map(([key, n, title, sub]) => (
+            <button key={key} className={`ltile ${key.toLowerCase()}`} aria-pressed={show === key} onClick={() => setShow(show === key ? "all" : key)}>
+              <b>{n}</b><span><strong>{title}</strong>{sub}</span>
+            </button>
           ))}
-          {(show === "all" || show === "checked") && CHECKED.length > 0 && (
-            <section className="stackcol">
-              <div className="section-title"><h2>Checked, not supported</h2><span className="muted small">Plausible ideas we tested on the same data and did not turn into a recommendation.</span></div>
-              <div className="card checked">
-                {CHECKED.map((c) => (
-                  <details key={c.title}>
-                    <summary><span className="no">✕</span>{c.title}</summary>
-                    <p className="muted">{c.text}</p>
-                  </details>
-                ))}
-              </div>
-            </section>
-          )}
-        </>
+        </div>
+        {groups.map((t) => (
+          <section key={t} className="stackcol">
+            <div className="section-title"><h2>{KIND[t].title}</h2><span className="muted small">{KIND[t].sub}</span></div>
+            {of(t).map((ins) => <Lesson key={ins.insight_id} ins={ins} rooms={data.rooms} FloorMap={FloorMap} observations={observations} />)}
+          </section>
+        ))}
+      </>}
+      {!report && evidence && <section className="stackcol">
+        <div className="section-title"><h2>Evidence from this dataset</h2><span className="muted small">{observations.length} observations available for recommendations</span></div>
+        <div className="card checked">{observations.map((item) => <details key={item.insight_id}>
+          <summary>{item.topic}</summary><p>{item.finding}</p><p className="muted small">{item.uncertainty}</p>
+        </details>)}</div>
+      </section>}
+      {(show === "all" || show === "checked") && checked.length > 0 && (
+        <section className="stackcol">
+          <div className="section-title"><h2>Hypotheses checked</h2><span className="muted small">Findings from the selected dataset</span></div>
+          <div className="card checked">
+            {checked.map((c) => <details key={c.hypothesis}><summary>{c.hypothesis}</summary><p className="muted">{c.result}</p></details>)}
+          </div>
+        </section>
       )}
+      {evidence?.skipped.length > 0 && <details className="card checked">
+        <summary>Where the evidence is limited</summary>
+        {evidence.skipped.map((item) => <p key={item.analysis}>{item.reason}</p>)}
+      </details>}
     </div>
   );
 }
