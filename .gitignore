@@ -42,3 +42,5 @@ node_modules/
 # --- UI build output and generated data bundles ---
 ui/dist/
 ui/public/data/
+
+.plans
