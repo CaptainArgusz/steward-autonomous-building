@@ -84,7 +84,7 @@ make check                                                    # lint, tests, qui
 | File | Content |
 |---|---|
 | [decisions.jsonl](decisions.jsonl) | Pipeline output on the dev dataset, one decision per line |
-| `decisions_holdout.jsonl` | Pipeline output on the holdout dataset (added after its release) |
+| [decisions_holdout.jsonl](decisions_holdout.jsonl) | Pipeline output on the holdout dataset: 663 decisions, produced by `make holdout` with the code at `pre-holdout` |
 | [insights.md](insights.md) | Feedback for CLARA and PLATO, and the target architecture |
 | tag `pre-holdout` | The code state before the holdout dataset was released |
 
