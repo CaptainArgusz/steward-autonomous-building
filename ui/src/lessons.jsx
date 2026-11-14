@@ -14,6 +14,20 @@ async function loadRecommendations(profile, mode, signal) {
   return payload;
 }
 
+// One request chain per dataset for the whole session: opening Lessons again reuses it, and the
+// app starts it as soon as a dataset is loaded so the report is usually ready before the tab is opened.
+const loaded = new Map(); // profile -> { evidence: Promise, report: Promise, done: resolved report payload }
+export function preloadLessons(profile) {
+  if (!loaded.has(profile)) {
+    const entry = { done: null };
+    entry.evidence = loadRecommendations(profile, "evidence");
+    entry.report = entry.evidence.then(() => loadRecommendations(profile, "recommend"));
+    entry.report.then((result) => { entry.done = result; }, () => loaded.delete(profile)); // a failure can be retried
+    loaded.set(profile, entry);
+  }
+  return loaded.get(profile);
+}
+
 const KIND = {
   PLATO: { cls: "plato", badge: "PLATO · build", verb: "Build it differently", title: "Build differently", sub: "Design changes for the next PLATO building" },
   CLARA: { cls: "clara", badge: "CLARA · operate", verb: "Operate it differently", title: "Operate differently", sub: "Rule changes CLARA can make without rebuilding" },
@@ -84,34 +98,25 @@ function Lesson({ ins, rooms, FloorMap, observations }) {
 /** Recommendations keep the same evidence/map cards as the original Lessons page. */
 export function Lessons({ data, FloorMap }) {
   const [show, setShow] = useState("all");
-  const [evidence, setEvidence] = useState(data.learning || null);
-  const [report, setReport] = useState(null);
+  const ready = loaded.get(data.meta.profile)?.done;
+  const [evidence, setEvidence] = useState(ready?.evidence || data.learning || null);
+  const [report, setReport] = useState(ready?.report || null);
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!ready);
 
   useEffect(() => {
-    const controller = new AbortController();
-    setLoading(true);
+    let live = true;
+    const entry = preloadLessons(data.meta.profile);
     setError("");
-    setReport(null);
     setShow("all");
-    const load = async () => {
-      try {
-        const observed = await loadRecommendations(data.meta.profile, "evidence", controller.signal);
-        if (controller.signal.aborted) return;
-        setEvidence(observed.evidence);
-        const result = await loadRecommendations(data.meta.profile, "recommend", controller.signal);
-        if (controller.signal.aborted) return;
-        setEvidence(result.evidence);
-        setReport(result.report);
-      } catch (e) {
-        if (!controller.signal.aborted) setError(e.message);
-      } finally {
-        if (!controller.signal.aborted) setLoading(false);
-      }
-    };
-    load();
-    return () => controller.abort();
+    setReport(entry.done?.report || null);
+    setLoading(!entry.done);
+    entry.evidence.then((observed) => { if (live && !entry.done) setEvidence(observed.evidence); }, () => {});
+    entry.report
+      .then((result) => { if (live) { setEvidence(result.evidence); setReport(result.report); } })
+      .catch((e) => { if (live) setError(e.message); })
+      .finally(() => { if (live) setLoading(false); });
+    return () => { live = false; };
   }, [data.meta.profile]);
 
   const observations = evidence?.observations || [];

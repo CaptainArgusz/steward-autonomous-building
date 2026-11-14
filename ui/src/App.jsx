@@ -4,7 +4,7 @@ import { TOUR_ORDER, featured, headline, isIncident, strictest } from "./plain.j
 import { IncidentStory, Light } from "./story.jsx";
 import { Manager } from "./manager.jsx";
 import { Overview } from "./overview.jsx";
-import { Lessons } from "./lessons.jsx";
+import { Lessons, preloadLessons } from "./lessons.jsx";
 import { Record } from "./record.jsx";
 
 const DATASETS = ["quickstart", "dev", "holdout"];
@@ -125,6 +125,7 @@ export default function App() {
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error("missing"))))
       .then((d) => {
         setData(d);
+        preloadLessons(d.meta.profile); // start the Lessons report now; it can take a while the first time
         // optional second file with room states per day for the live-day replay
         fetch(`./data/${name}.days.json`)
           .then((r) => (r.ok ? r.json() : null))
