@@ -104,6 +104,7 @@ export function Manager({ data, tz, onOpen, answers, onAnswer }) {
   const [minute, setMinute] = useState(startAt);
   const [playing, setPlaying] = useState(false);
   const [tilt, setTilt] = useState(new URLSearchParams(location.search).get("map") === "3d");
+  const [speed, setSpeed] = useState(1);  // 1x = a quarter hour every 0.8 s, about a minute for a full day
   const [toasts, setToasts] = useState([]);
   const last = useRef(minute);
   const pick = (k) => { if (!days.includes(k)) return; setDay(k); setMinute(6 * 60); setPlaying(false); };
@@ -115,9 +116,9 @@ export function Manager({ data, tz, onOpen, answers, onAnswer }) {
   }, [data.meta.profile]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!playing) return undefined;
-    const t = setInterval(() => setMinute((m) => Math.min(m + 15, END)), 220);
+    const t = setInterval(() => setMinute((m) => Math.min(m + 15, END)), 800 / speed);
     return () => clearInterval(t);
-  }, [playing]);
+  }, [playing, speed]);
   useEffect(() => { if (playing && minute >= END) setPlaying(false); }, [minute, playing]);
 
   const today = all.filter((x) => x.day === day).sort((a, b) => a.minute - b.minute || (a.d.timestamp_utc < b.d.timestamp_utc ? -1 : 1));
@@ -190,6 +191,9 @@ export function Manager({ data, tz, onOpen, answers, onAnswer }) {
             </div>
             <input type="range" min={0} max={95} value={slot} onChange={(ev) => { setPlaying(false); setMinute(Number(ev.target.value) * 15); }} aria-label="Time of day" />
             <div className="hours"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div>
+          </div>
+          <div className="seg" role="group" aria-label="Playback speed">
+            {[1, 2, 4].map((v) => <button key={v} aria-pressed={speed === v} onClick={() => setSpeed(v)}>{v}×</button>)}
           </div>
           <button className="chip" disabled={!upcoming} onClick={() => { setPlaying(false); setMinute(Math.min(END, Math.ceil(upcoming.minute / 15) * 15)); }}>
             {upcoming ? `Jump to next action · ${hhmm(upcoming.minute)}` : "No more actions today"}
