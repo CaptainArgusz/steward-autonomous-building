@@ -196,5 +196,101 @@ Hypotheses we tested that the data does not support.
 ## Target architecture
 
 <!-- target-architecture:start -->
-_Placeholder - not written yet. (Text between the two HTML comment markers is kept when this file is regenerated.)_
+What the real autonomous building would need: data, agents, robots, technologies and
+interfaces. This is a sketch that follows from building and running the prototype on PLATO-40.
+Each part says what the prototype already does and what is still missing; nothing here is a
+claim about what CLARA does today.
+
+```
+ sensors, meters, bookings, access, roster, weather, prices, work orders
+                               │  every record carries "known since"
+                               ▼
+        ┌──────────── operational record (time-stamped, append-only) ────────────┐
+        │                                                                         │
+        ▼                                                                         ▼
+  domain agents ──► proposals ──► coordinator ──► policy gate ──► executors   learning loop
+  (housekeeping, water,           (one plan for    (autonomy      (BMS, robots,  (yearly findings
+   heating, maintenance,           shared staff,    rules,         work orders,   for CLARA rules
+   logistics, energy,              robots, rooms)   approvals,     guest          and PLATO design)
+   guest service)                                   consent)       messaging)         ▲
+        ▲                                                │              │             │
+        └──────────── verification: did the signal change as expected? ◄┴─────────────┘
+```
+
+### Data
+
+| Need | Why (what PLATO-40 showed) | In the prototype |
+|---|---|---|
+| A "known since" time on every record | Forecasts, prices, roster changes and bookings arrive at different times; a decision may only use what was known. Booking cancellations have no timestamp in the data, so we could not use them at all. | Enforced where the data has it (`created_utc`, `published_utc`, `issued_utc`, `status_known_utc`); tested by cutting the data at a point in time |
+| Occupancy that is more than motion | `presence` is 0 for a sleeping guest and 1 for a cleaner; the access log has entries but no exits. Room state had to be rebuilt from check-in, check-out and cleaning events. | Rebuilt from events |
+| Sensor health as its own signal | One floor gateway dropped out repeatedly and took the whole floor's sensors with it (P-05). A data gap must never look like a fault or like normal operation. | Gateway gaps are separate incidents; blanks stay missing |
+| Sub-metering with meter metadata | Leaks showed up in a room meter, or only in the gap between the main meter and the sum of rooms. Meter exchanges reset the counter. | Used; meter restarts are masked |
+| Outcome records | To learn, the building must record what happened after an action (guest waited, bin overflowed, technician found a fault). Today alarms are delayed and partly false. | Scored against the outcomes the replay recorded; no ground truth exists |
+
+### Agents
+
+One agent per domain, each owning its signals and its look-alike rules: housekeeping and
+turnaround, water, heating and comfort, ventilation and maintenance, logistics, energy, guest
+service. Above them:
+
+- **A coordinator** for shared resources. Cleaners, the on-call housekeeper, two robots and the
+  technician are claimed by several domains at once; a weekend surge and a turnaround conflict
+  must produce one plan, not two. In the prototype the weekend and turnaround planners share
+  one room replay and one capacity queue.
+- **A policy gate** between deciding and acting. It holds the autonomy rules in one place:
+  what may run on its own, what needs a person, what also needs the guest's consent, and what
+  is refused outright (releasing a room that was not cleaned, sending a robot into an occupied
+  room, assigning absent staff). In the prototype this is the decision contract plus the mock
+  executor's checks.
+- **Detection and decisions stay deterministic.** A language model may explain an incident or
+  draft a guest message from structured evidence, but it does not decide. The prototype uses
+  templates only, so every run is reproducible.
+
+In the prototype the agents are rule-based detectors, not independently running services.
+Splitting them into services with their own schedules is the step to a real deployment.
+
+### Robots
+
+- **Floor-cleaning robots** as a planned resource: a robot pass before the cleaner shortens
+  the human cleaning, and was skipped most on the busiest days (C-02). They need a task
+  interface (send to room, report done or blocked), a hard interlock against entering an
+  occupied room, and the same roster and availability data as staff.
+- **Logistics runs**: carrying floor bins to the central container when a cleaner is absent.
+- **Limits that stay**: a robot cannot clean a bathroom, certify a room or release it. Only a
+  person marks a room clean. The architecture keeps that as a rule in the policy gate, not as a
+  convention.
+- **Not robots, but the same pattern**: remote-serviceable plant. The rooftop ventilation unit
+  could not be serviced without a lift platform (P-04); the next building should make filter
+  changes possible without one.
+
+### Technologies
+
+| Layer | Needed | Prototype |
+|---|---|---|
+| Ingestion | Event stream from the building management system, meters, booking system, door access, roster, weather and price services; redundant gateways per floor | Batch replay of CSV and JSONL files |
+| Record | Append-only, time-stamped store that can answer "what was known at time t" | In-memory tables with time filters |
+| Detection | Per-domain baselines and rules, with a logged reason for every dismissed look-alike | Implemented for S01 to S05, logistics and energy |
+| Planning | Capacity planning for cleaning and robots; day-ahead optimisation of battery and load inside the comfort band | Capacity queue; dynamic programme for the battery |
+| Execution | Adapters to the building controls, robot fleet, maintenance and messaging systems, each with safety checks and a dry-run mode | Mock executor only; every effect is simulated |
+| Audit | One decision log with evidence, autonomy level, approval state and verification plan | `decisions.jsonl` and the action trail |
+
+### Interfaces
+
+- **Duty manager**: an approvals inbox with the evidence behind each request, and a view of
+  what the building did on its own (the prototype's Live day and Incidents views).
+- **Guests**: messages in the guest's language with a realistic time, sent before the reply
+  deadline; consent requests where a room must be entered. Proposed texts only in the prototype.
+- **Cleaners and technicians**: a task list on a phone, with "done" and "could not do" feeding
+  back as events. This closes the verification loop, which a replay cannot do.
+- **Contractors and suppliers**: orders for extra waste pickups, restocks and service visits,
+  with confirmation. The data does not confirm attendance, so the prototype never assumes it.
+- **Planners of the next building**: the yearly findings above, with the evidence and the
+  uncertainty, in a form that can be compared across buildings.
+
+### What the prototype cannot show
+
+Because the data is a replay, no action changes what happens next. Verification is therefore a
+stated plan per decision, not an observed result, and no saving is measured. A real deployment
+would start in shadow mode (decide and log, do not act), compare its proposals with what staff
+did, and move one action type at a time from "needs approval" to "automatic".
 <!-- target-architecture:end -->

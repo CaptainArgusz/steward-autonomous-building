@@ -139,7 +139,7 @@ PROJECT.md          team working agreement, plan and status
 
 ## Team
 
-TBD
+Aron Angster, Desislava, Andrey Nikolov
 
 ## Licence
 
