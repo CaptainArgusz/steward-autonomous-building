@@ -41,6 +41,7 @@ from steward.contract import Decision, make_event_id, utc_z
 from steward.dataset import Dataset
 
 ISSUE = "room_turnaround"
+GUEST_ISSUE = "guest_request"  # replies to guest requests that are not themselves an incident
 
 # Warm-up defaults, replaced by trailing medians once MIN_SAMPLES observations exist.
 DEFAULT_CLEAN_MIN = 60.0  # human cleaning without robot pre-clean
@@ -72,6 +73,22 @@ _MESSAGES = {
         "fr": "Nous sommes désolés pour l'attente. Votre chambre est en cours de nettoyage et devrait être prête vers {eta}. Vous pouvez laisser vos bagages dans le hall.",
         "es": "Lamentamos la espera. Su habitación se está limpiando y calculamos que estará lista hacia las {eta}. Puede dejar su equipaje en el vestíbulo.",
         "nl": "Excuses voor het wachten. Uw kamer wordt schoongemaakt en is naar verwachting rond {eta} klaar. U kunt uw bagage in de lobby laten staan.",
+    },
+    "ack_early": {
+        "en": "Thank you for your request to check in at {asked}. The room is turned around from the previous stay today, so we cannot confirm the time yet. We will let you know by {confirm} whether it can be ready at {asked}; check-in is guaranteed from {checkin}.",
+        "de": "Danke für Ihre Anfrage, um {asked} Uhr einzuchecken. Das Zimmer wird heute nach dem vorherigen Aufenthalt vorbereitet, daher können wir die Uhrzeit noch nicht bestätigen. Wir melden uns bis {confirm} Uhr, ob es um {asked} Uhr bereit sein kann; ab {checkin} Uhr ist der Check-in garantiert.",
+        "it": "Grazie per la richiesta di check-in alle {asked}. Oggi la camera viene preparata dopo il soggiorno precedente, quindi non possiamo ancora confermare l'orario. Vi faremo sapere entro le {confirm} se potrà essere pronta alle {asked}; il check-in è garantito dalle {checkin}.",
+        "fr": "Merci pour votre demande d'arrivée à {asked}. La chambre est préparée aujourd'hui après le séjour précédent, nous ne pouvons donc pas encore confirmer l'heure. Nous vous dirons d'ici {confirm} si elle peut être prête à {asked} ; l'arrivée est garantie à partir de {checkin}.",
+        "es": "Gracias por su solicitud de llegada a las {asked}. Hoy la habitación se prepara tras la estancia anterior, por lo que aún no podemos confirmar la hora. Le diremos antes de las {confirm} si puede estar lista a las {asked}; la llegada está garantizada desde las {checkin}.",
+        "nl": "Bedankt voor uw verzoek om om {asked} in te checken. De kamer wordt vandaag klaargemaakt na het vorige verblijf, dus we kunnen de tijd nog niet bevestigen. We laten u uiterlijk {confirm} weten of de kamer om {asked} klaar kan zijn; inchecken is gegarandeerd vanaf {checkin}.",
+    },
+    "confirm_early": {
+        "en": "Good news: your room will be ready for check-in at {asked} as you asked.",
+        "de": "Gute Nachricht: Ihr Zimmer ist wie gewünscht um {asked} Uhr für den Check-in bereit.",
+        "it": "Buone notizie: la camera sarà pronta per il check-in alle {asked}, come richiesto.",
+        "fr": "Bonne nouvelle : votre chambre sera prête pour l'arrivée à {asked}, comme demandé.",
+        "es": "Buenas noticias: su habitación estará lista para la llegada a las {asked}, como pidió.",
+        "nl": "Goed nieuws: uw kamer is zoals gevraagd om {asked} klaar om in te checken.",
     },
     "late_checkout": {
         "en": "Unfortunately we cannot offer a check-out at {asked}: the next guest arrives today and the room has to be cleaned first. The latest we can offer is {offer}.",
@@ -211,6 +228,7 @@ class Watch:
     language: str
     asked_at: pd.Timestamp
     done: bool = False
+    ack: str | None = None  # event_id of the holding reply, if one was sent
 
 
 @dataclass
@@ -669,6 +687,92 @@ class _Replay:
         lead = pd.Timedelta(minutes=self.stats.robot_min + self.stats.clean_robot_min)
         check_at = max(t, need - lead, self.at_local(day, (PLAN_HOUR_LOCAL, 0)))
         self.schedule(check_at, "watch", watch)
+        due = getattr(r, "response_due_utc", None)
+        if pd.notna(due) and check_at > due >= t:
+            watch.ack = self.acknowledge(r, rid, day, need, check_at, due)
+
+    def guest_reply(self, at: pd.Timestamp, rid: str, request_id: str, **fields) -> str:
+        """A reply to one guest request. Filed as its own ``guest_request`` episode so that answering
+        a guest on time is not counted as a room incident; a real conflict stays in the room episode."""
+        event_id = make_event_id(GUEST_ISSUE, rid, at, "notify_guest")
+        n = sum(1 for d in self.decisions if d.event_id.startswith(event_id))
+        if n:
+            event_id = f"{event_id}:{n + 1}"
+        self.decisions.append(
+            Decision(
+                event_id=event_id,
+                episode_id=f"{GUEST_ISSUE}:{request_id}",
+                timestamp_utc=at,
+                issue_type=GUEST_ISSUE,
+                action="notify_guest",
+                affected_assets=[rid],
+                guest_request_ids=[request_id],
+                requires_human_approval=False,
+                **fields,
+            )
+        )
+        return event_id
+
+    def acknowledge(self, r, rid: str, day, need: pd.Timestamp, check_at: pd.Timestamp, due) -> str:
+        """Answer an early check-in request by its deadline when the real answer comes later.
+
+        Feasibility is only known at ``check_at`` (morning roster, checkout); waiting for it would
+        miss ``response_due_utc``. So reply now without promising a time, and say when we confirm.
+        """
+        t = r.timestamp_utc
+        at = t.ceil("15min")
+        if at > due:
+            at = t.ceil("min")
+        confirm = _hhmm(_ceil_quarter(check_at), self.tz)
+        asked = _hhmm(need, self.tz)
+        checkin = f"{self.checkin_hm[0]:02d}:{self.checkin_hm[1]:02d}"
+        lang = r.language if isinstance(r.language, str) else self.language_for(r.booking_id, at)
+        text, lang = render_message(
+            "ack_early", lang, asked=asked, confirm=confirm, checkin=checkin
+        )
+        return self.guest_reply(
+            at,
+            rid,
+            r.request_id,
+            priority="low",
+            reason=(
+                f"Guest request {r.request_id} asks to check in at {asked} local. Whether {rid} can be ready depends on "
+                f"today's checkout and cleaning plan, known at about {confirm} local - after the reply deadline "
+                f"{_hhmm(due, self.tz)} local. Reply by the deadline without promising a time."
+            ),
+            evidence=[
+                f"guest_requests.csv:{r.request_id}",
+                f"bookings.csv:{r.booking_id}:arrival {rid} on {day}",
+            ],
+            proposed_message=text,
+            message_language=lang,
+            expected_outcome="Proposed message only - not proof of delivery. The guest has an answer before the deadline and knows when to expect confirmation.",
+            verification_plan=f"A follow-up with a realistic time (or confirmation) for {rid} by {confirm} local.",
+            confidence=0.8,
+        )
+
+    def confirm(self, t: pd.Timestamp, w: Watch, why: str) -> None:
+        """Second message after a holding reply: the asked time works."""
+        if not w.ack:
+            return
+        asked = _hhmm(w.need, self.tz)
+        text, lang = render_message(
+            "confirm_early", w.language if isinstance(w.language, str) else "en", asked=asked
+        )
+        self.guest_reply(
+            t,
+            w.room,
+            w.request_id,
+            priority="low",
+            reason=f"Follow-up to the holding reply for {w.request_id}: {why} Confirm the asked time {asked} local.",
+            evidence=[f"guest_requests.csv:{w.request_id}"] + self.room_evidence(w.room, t),
+            dependencies=[w.ack],
+            proposed_message=text,
+            message_language=lang,
+            expected_outcome="Proposed message only - not proof of delivery. The guest knows the asked time works.",
+            verification_plan=f"housekeeping_state=clean for {w.room} before {asked} local; if cleaning slips, send a new time.",
+            confidence=0.75,
+        )
 
     def on_watch(self, t: pd.Timestamp, w: Watch) -> None:
         if w.done:
@@ -680,6 +784,7 @@ class _Replay:
         room = self.rooms[w.room]
         ref = [f"guest_requests.csv:{w.request_id}"]
         if not room.occupied and room.dirty_since is None and room.cleaning_by is None:
+            self.confirm(t, w, "the room is already clean.")
             audit.dismiss(
                 ISSUE,
                 w.room,
@@ -702,6 +807,9 @@ class _Replay:
         late = eta is None or eta > w.need - TOLERANCE  # under one step of slack = at risk
         fifo_late = fifo_eta is None or fifo_eta > w.need + TOLERANCE
         if not late and not fifo_late:
+            self.confirm(
+                t, w, f"the cleaning queue reaches the room by {_hhmm(eta, self.tz)} local."
+            )
             audit.dismiss(
                 ISSUE,
                 w.room,

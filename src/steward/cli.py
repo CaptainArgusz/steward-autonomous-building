@@ -73,6 +73,9 @@ def _cmd_ui(args: argparse.Namespace) -> int:
     print(
         f"steward: wrote UI bundle {out} ({out.stat().st_size / 1e6:.1f} MB, {len(bundle['episodes'])} incidents)"
     )
+    days_out = out.with_name(f"{out.stem}.days.json")
+    export.write(export.build_days(args.data_dir), days_out)
+    print(f"steward: wrote replay-day file {days_out} ({days_out.stat().st_size / 1e6:.1f} MB)")
     return 0
 
 

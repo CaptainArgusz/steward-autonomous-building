@@ -131,6 +131,7 @@ def score(ds: Dataset, decisions: list[Decision]) -> dict:
     )
     outcomes = _outcomes(ds)
     matched_episodes: set[str] = set()
+    matched_labels: dict[str, str] = {}  # episode -> first recorded outcome it preceded
     rows = []
     for probe in PROBES:
         ours = frame[frame["issue"] == probe.issue_type] if len(frame) else frame
@@ -153,6 +154,8 @@ def score(ds: Dataset, decisions: list[Decision]) -> dict:
                 caught += 1
                 leads.append((when - hit["t"].min()) / pd.Timedelta(hours=1))
                 matched_episodes.update(hit["episode"])
+                for ep in hit["episode"]:
+                    matched_labels.setdefault(ep, probe.label)
         total = len(outcomes[probe.key])
         rows.append(
             {
@@ -183,6 +186,7 @@ def score(ds: Dataset, decisions: list[Decision]) -> dict:
         "outcomes": rows,
         "by_issue": by_issue,
         "weeks": weeks,
+        "matched": matched_labels,
         "caveat": (
             "Outcomes are what the replay happened to record; they are not ground truth. "
             "An incident without a recorded outcome is not necessarily a false alarm."

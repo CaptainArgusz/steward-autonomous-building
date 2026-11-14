@@ -185,3 +185,34 @@ def test_early_checkin_conflict_is_raised_before_the_guest_arrives(ds, decisions
         and pd.Timestamp(d.timestamp_utc) > first["timestamp_utc"] - pd.Timedelta(hours=12)
     ]
     assert {"schedule_cleaning", "notify_guest"} <= {d.action for d in earlier}
+
+
+def test_every_answered_guest_request_gets_its_first_reply_by_the_deadline(ds):
+    from steward.detectors import turnaround
+
+    decisions = turnaround.detect(ds)
+    due = ds.guest_requests.set_index("request_id")["response_due_utc"]
+    first = {}
+    for d in sorted(decisions, key=lambda d: d.timestamp_utc):
+        for r in d.guest_request_ids or []:
+            first.setdefault(r, pd.Timestamp(d.timestamp_utc))
+    assert first
+    late = {r: t for r, t in first.items() if t > due[r]}
+    assert not late, late
+
+
+def test_holding_reply_is_followed_up_and_never_promises_a_time(ds):
+    from steward.detectors import turnaround
+
+    decisions = turnaround.detect(ds)
+    replies = [d for d in decisions if d.issue_type == turnaround.GUEST_ISSUE]
+    assert replies
+    ids = {d.event_id for d in replies}
+    for d in replies:
+        assert d.action == "notify_guest" and not d.requires_human_approval
+        assert "not proof of delivery" in d.expected_outcome
+        if d.dependencies:  # a follow-up: it answers an earlier holding reply for the same request
+            assert set(d.dependencies) <= ids
+            ack = next(x for x in replies if x.event_id == d.dependencies[0])
+            assert ack.guest_request_ids == d.guest_request_ids
+            assert pd.Timestamp(ack.timestamp_utc) <= pd.Timestamp(d.timestamp_utc)

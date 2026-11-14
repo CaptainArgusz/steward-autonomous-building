@@ -109,8 +109,15 @@ No environment variables are required. [.env.example](.env.example) lists option
 
 - The data is an offline replay: no action changes later observations, so we cannot observe
   whether an action worked. Each decision instead carries a `verification_plan`.
-- Guest replies can still miss their recorded response deadlines; the general first-response
-  workflow is pending. The mock executor does not yet enforce action dependencies.
+- Early check-in requests whose answer depends on the morning's cleaning plan get a holding
+  reply by their `response_due_utc` (no time promised, says when we confirm), then either a
+  confirmation or a realistic time. These replies are filed as `guest_request` episodes, not as
+  room incidents. Only requests linked to an operational problem are answered; general requests
+  (wifi, towels, ...) are out of scope.
+- The mock executor runs actions in dependency order and refuses unsafe ones with a reason:
+  `release_room` without a completed cleaning since the last checkout, a robot sent into an
+  occupied room, or staff known to be absent. Actions that wait for approval stay pending, and
+  steps that depend on them are marked `blocked_by_dependency`.
 - There is no ground truth in the participant data. Detection quality is argued from evidence.
 - A booking becomes known at `created_utc`. The final `cancelled` status has no timestamp,
   so replay planning does not use it to remove expected arrivals. Overlapping known bookings

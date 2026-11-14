@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 import time
 import traceback
+from collections import Counter
 from pathlib import Path
 
 from steward import audit, executor
@@ -62,7 +63,10 @@ def run(
     _log(f"steward: wrote {len(decisions)} decisions to {out}")
     dismissed = audit.drain()
     if trail:
-        executor.write_trail(executor.execute(decisions), trail)
+        trail_rows = executor.execute(decisions, ds)
+        executor.write_trail(trail_rows, trail)
+        counts = Counter(r["status"] for r in trail_rows)
+        _log("steward: action trail " + ", ".join(f"{k} {v}" for k, v in sorted(counts.items())))
         dismissed_path = Path(trail).with_name("dismissed.jsonl")
         audit.write(dismissed, dismissed_path)
         _log(f"steward: wrote mock-executor action trail to {trail}")

@@ -13,6 +13,7 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from steward import executor
@@ -156,6 +157,56 @@ def _asset_charts(ds: Dataset, asset: str, start, end) -> list[dict]:
     return charts
 
 
+_WINDOW = re.compile(r"(\d{2}):(\d{2})-(\d{2}):(\d{2}) \(~(\d+(?:\.\d+)?) kWh\)")
+
+
+def _energy_charts(ds: Dataset, episode_id: str, items: list[Decision]) -> list[dict]:
+    """Prices of the planned day and the planned battery power, read back from the plan text."""
+    try:
+        day = pd.Timestamp(episode_id.rsplit(":", 1)[-1]).date()
+    except ValueError:
+        return []
+    tz = ds.local_tz
+    start = pd.Timestamp(day).tz_localize(tz).tz_convert("UTC")
+    hours = pd.date_range(start, start + pd.Timedelta(days=1), freq="1h", inclusive="left")
+    tariff = ds.tariff.drop_duplicates("timestamp_utc", keep="last").set_index("timestamp_utc")
+    price = tariff["price_eur_kwh"].reindex(hours)
+    plan = pd.Series(0.0, index=hours)
+    reason = items[-1].reason
+    for part, sign in (("Charge", -1.0), ("discharge", 1.0)):
+        i = reason.find(part + " ")
+        if i < 0:
+            continue
+        chunk = reason[i : reason.find(";", i) if ";" in reason[i:] else None]
+        for h0, m0, h1, m1, kwh in _WINDOW.findall(chunk):
+            a = (
+                pd.Timestamp(day)
+                .replace(hour=int(h0), minute=int(m0))
+                .tz_localize(tz)
+                .tz_convert("UTC")
+            )
+            b_local = pd.Timestamp(day).replace(hour=int(h1), minute=int(m1))
+            if (int(h1), int(m1)) <= (int(h0), int(m0)):
+                b_local += pd.Timedelta(days=1)
+            b = b_local.tz_localize(tz).tz_convert("UTC")
+            span = (b - a) / pd.Timedelta(hours=1)
+            if span > 0:
+                plan[(plan.index >= a) & (plan.index < b)] = sign * float(kwh) / span
+    return [
+        {
+            "title": "Day-ahead electricity price for the planned day",
+            "unit": "EUR/kWh",
+            "series": [{"name": "Price", "points": _points(price)}],
+        },
+        {
+            "title": "Battery plan (above 0 = discharge to cover load, below 0 = charge)",
+            "unit": "kW",
+            "with_first": True,
+            "series": [{"name": "Planned battery power", "points": _points(plan)}],
+        },
+    ]
+
+
 def _room_events(ds: Dataset, rooms: list[str], start, end) -> list[dict]:
     ev = ds.events
     ev = ev[(ev["timestamp_utc"] >= start) & (ev["timestamp_utc"] <= end)]
@@ -206,7 +257,7 @@ def _time_context(ds: Dataset, d: Decision) -> list[dict]:
 
 
 def _episodes(ds: Dataset, decisions: list[Decision]) -> list[dict]:
-    status = {row["event_id"]: row["status"] for row in executor.execute(decisions)}
+    status = {row["event_id"]: row["status"] for row in executor.execute(decisions, ds)}
     groups: dict[str, list[Decision]] = defaultdict(list)
     for d in decisions:
         groups[d.episode_id or d.event_id].append(d)
@@ -221,7 +272,9 @@ def _episodes(ds: Dataset, decisions: list[Decision]) -> list[dict]:
         issue = items[0].issue_type
         lo, hi = max(start - PAD, ds.start), min(end + PAD, ds.end)
 
-        charts: list[dict] = []
+        charts: list[dict] = (
+            _energy_charts(ds, episode_id, items) if issue == "energy_optimization" else []
+        )
         for asset in assets:
             if asset not in rooms_known:
                 charts += _asset_charts(ds, asset, lo, hi)
@@ -251,6 +304,68 @@ def _episodes(ds: Dataset, decisions: list[Decision]) -> list[dict]:
         )
     episodes.sort(key=lambda e: (e["start"], e["id"]))
     return episodes
+
+
+def _days(ds: Dataset) -> dict:
+    """Per local day: every room's state in 15-minute steps, plus arrivals, departures and staff.
+
+    Room state codes: o occupied, d vacant and dirty, c being cleaned, r vacant and ready,
+    ? no reading. Occupancy is the causal state from check-in/check-out events; the cleaning
+    state is the housekeeping_state the room reported. Used by the UI's replay clock only.
+    """
+    tz = ds.local_tz
+    t = ds.room_telemetry[["timestamp_utc", "room_id", "housekeeping_state"]].drop_duplicates(
+        ["timestamp_utc", "room_id"], keep="last"
+    )
+    t = ds.add_occupancy(t)
+    hk = t["housekeeping_state"]
+    code = np.select(
+        [t["occupied"], hk.eq("in_progress"), hk.eq("dirty"), hk.eq("clean")],
+        ["o", "c", "d", "r"],
+        default="?",
+    )
+    local = t["timestamp_utc"].dt.tz_convert(tz)
+    frame = pd.DataFrame(
+        {
+            "day": local.dt.strftime("%Y-%m-%d"),
+            "slot": local.dt.hour * 4 + local.dt.minute // 15,
+            "room": t["room_id"],
+            "code": code,
+        }
+    )
+    days: dict[str, dict] = {}
+    for (day, room), g in frame.groupby(["day", "room"], sort=True):
+        row = ["?"] * 100  # DST days have 92 or 100 quarter hours
+        for slot, c in zip(g["slot"], g["code"], strict=True):
+            row[int(slot)] = c
+        days.setdefault(day, {"rooms": {}})["rooms"][room] = "".join(row[:96]).rstrip("?") or "?"
+
+    lc = ds.lifecycle
+    lc_day = lc["timestamp_utc"].dt.tz_convert(tz).dt.strftime("%Y-%m-%d")
+    arrivals = (
+        lc[lc["type"].isin(["checkin", "checkin_early", "checkin_after_wait"])]
+        .groupby(lc_day)
+        .size()
+    )
+    departures = lc[lc["type"].isin(["checkout", "checkout_early"])].groupby(lc_day).size()
+    roster = ds.staff_roster
+    r_day = roster["start_utc"].dt.tz_convert(tz).dt.strftime("%Y-%m-%d")
+    for day, info in days.items():
+        info["arrivals"] = int(arrivals.get(day, 0))
+        info["departures"] = int(departures.get(day, 0))
+        today = roster[r_day == day]
+        info["staff"] = [
+            {
+                "id": r.resource_id,
+                "role": r.role,
+                "status": r.status,
+                "start": utc_z(r.start_utc),
+                "end": utc_z(r.end_utc),
+                "known": utc_z(r.status_known_utc) if pd.notna(r.status_known_utc) else None,
+            }
+            for r in today.itertuples()
+        ]
+    return days
 
 
 def _jsonl(path: Path) -> list[dict]:
@@ -296,6 +411,12 @@ def build(
         "insights": _jsonl(Path(insights_path)) if insights_path else [],
         "scorecard": scorecard,
     }
+
+
+def build_days(data_dir: str | Path) -> dict:
+    """Room states and staff per day for the replay clock, kept in a separate file so the
+    main bundle keeps its format."""
+    return {"days": _days(Dataset(data_dir))}
 
 
 def write(bundle: dict, out: str | Path) -> None:

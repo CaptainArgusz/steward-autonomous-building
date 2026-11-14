@@ -31,7 +31,10 @@ def test_executor_never_executes_what_needs_approval(tmp_path):
     decisions, _ = pipeline.run(QUICKSTART, out=tmp_path / "d.jsonl", strict=True)
     for row in executor.execute(decisions):
         assert row["simulated"] is True
-        assert (row["status"] == "executed_simulated") == (row["autonomy"] == "autonomous")
+        if row["autonomy"] != "autonomous":
+            assert row["status"].startswith("pending_")
+        else:  # autonomous: executed, or waiting for an earlier step that still needs approval
+            assert row["status"] in ("executed_simulated", "blocked_by_dependency")
 
 
 def test_next_regular_pickup_follows_local_time_across_dst():
