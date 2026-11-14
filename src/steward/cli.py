@@ -8,6 +8,7 @@ steward info <data_dir>                            what is in a dataset
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -59,7 +60,17 @@ def _cmd_ui(args: argparse.Namespace) -> int:
     work = Path("out") / ds.profile
     decisions, trail = work / "decisions.jsonl", work / "action_trail.jsonl"
     pipeline.run(args.data_dir, out=decisions, trail=trail)
-    card = scorecard.score(ds, validate_file(decisions, ds).decisions)
+    dismissed_path = work / "dismissed.jsonl"
+    dismissed = (
+        [
+            json.loads(line)
+            for line in dismissed_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        if dismissed_path.is_file()
+        else []
+    )
+    card = scorecard.score(ds, validate_file(decisions, ds).decisions, dismissed)
     print(scorecard.render(card))
     bundle = export.build(
         args.data_dir,

@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { STATUS, fmtTime, issue, rampColor } from "./util.js";
-import { TOUR_ORDER, featured, friendly, headline, isIncident, name as nice, strictest } from "./plain.js";
+import { TOUR_ORDER, featured, headline, isIncident, strictest } from "./plain.js";
 import { IncidentStory, Light } from "./story.jsx";
 import { Manager } from "./manager.jsx";
 import { Overview } from "./overview.jsx";
 import { Lessons } from "./lessons.jsx";
+import { Record } from "./record.jsx";
 
 const DATASETS = ["quickstart", "dev", "holdout"];
 const VIEWS = [["overview", "Overview"], ["incidents", "Incidents"], ["day", "Live day"], ["lessons", "Lessons"], ["record", "Track record"]];
@@ -241,64 +242,7 @@ export default function App() {
 
       {view === "lessons" && <Lessons key={`${data.meta.profile}/${data.meta.start}/${data.meta.end}`} data={data} FloorMap={FloorMap} />}
 
-      {view === "record" && (
-        <div className="page">
-          <div className="page-head">
-            <h1>Track record</h1>
-            <p>The data has no ground truth, so we score ourselves against what the replay later recorded, and we show what Steward chose not to raise.</p>
-          </div>
-          <div className="record">
-            <div className="card">
-              <h2>Flagged before it happened</h2>
-              {!data.scorecard ? <div className="empty">No scorecard in this dataset.</div> : (
-                <>
-                  {data.scorecard.outcomes.map((r) => (
-                    <div className="outcome" key={r.key}>
-                      <span>{r.label}</span>
-                      <span className="frac">{r.recorded ? `${r.flagged_before} of ${r.recorded}` : "none recorded"}</span>
-                      <span className="meter"><i style={{ width: `${r.recorded ? (r.flagged_before / r.recorded) * 100 : 0}%`, background: issue(r.issue_type).color }} /></span>
-                      <span className="muted small">{issue(r.issue_type).label}</span>
-                      <span className="muted small lead">{r.median_lead_h != null ? `median ${r.median_lead_h} h ahead` : ""}</span>
-                    </div>
-                  ))}
-                  <div className="callout plain small">{data.scorecard.caveat}</div>
-                  <details className="more" style={{ marginTop: 12 }}>
-                    <summary>Incidents per type and week</summary>
-                    <table className="tbl">
-                      <thead><tr><th>Type ({data.scorecard.weeks} weeks)</th><th>Incidents</th><th>Per week</th><th>Matched an outcome</th></tr></thead>
-                      <tbody>
-                        {data.scorecard.by_issue.map((r) => (
-                          <tr key={r.issue_type}>
-                            <td><i className="swatch" style={{ background: issue(r.issue_type).color }} />{issue(r.issue_type).label}</td>
-                            <td>{r.incidents}</td><td>{r.incidents_per_week}</td><td>{r.incidents_with_recorded_outcome}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </details>
-                </>
-              )}
-            </div>
-            <div className="card">
-              <h2>False alarms avoided</h2>
-              <div className="muted small" style={{ marginBottom: 8 }}>Things that looked like a problem, checked and dismissed with a reason. Open a group to read why.</div>
-              {data.dismissed.length === 0 ? <div className="empty">Nothing recorded.</div>
-                : [...new Set(data.dismissed.map((d) => d.issue_type))]
-                  .sort((x, y) => data.dismissed.filter((d) => d.issue_type === y).length - data.dismissed.filter((d) => d.issue_type === x).length).map((t) => {
-                  const rows = data.dismissed.filter((d) => d.issue_type === t);
-                  return (
-                    <details className="dgroup" key={t}>
-                      <summary><i className="swatch" style={{ background: issue(t).color }} /><span>{issue(t).label} look-alikes</span><span className="n">{rows.length}</span></summary>
-                      <div className="dlist">
-                        {rows.map((d, i) => <div key={i}><b>{nice(d.asset)} · {fmtTime(d.timestamp_utc, tz)}</b><span className="muted">{friendly(d.reason, tz)}</span></div>)}
-                      </div>
-                    </details>
-                  );
-                })}
-            </div>
-          </div>
-        </div>
-      )}
+      {view === "record" && <Record data={data} tz={tz} />}
     </div>
   );
 }
