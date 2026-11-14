@@ -12,7 +12,8 @@ each action would be verified.
 
 **Status: work in progress.** The three mandatory scenarios (checkout conflict, water leak,
 heating vs comfort) have a first working version, the insights report has 12 findings, and
-there is a web UI. See [PROJECT.md](PROJECT.md) §12 for results and known issues.
+there is a web UI with a replayable Live Day and a real-time 3D floor view. See
+[PROJECT.md](PROJECT.md) §12 for results and known issues.
 
 ## Run it
 
