@@ -173,6 +173,7 @@ export function IncidentStory({ e, tz, outcome, Technical, locator, answers, onA
     <div className="card story">
       <div className="story-top">
         <div>
+          <div className="eyebrow" style={{ marginBottom: 10 }}>2 · How Steward handled it</div>
           <div className="story-head">
             <span className="type-pill" style={{ background: issue(e.issue_type).color }}>{issue(e.issue_type).label}</span>
             <span className={`badge p-${e.priority}`}>{e.priority} priority</span>

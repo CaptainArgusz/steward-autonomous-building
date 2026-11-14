@@ -73,53 +73,6 @@ export function FloorMap({ rooms, episodes = [], selectedRoom, onRoom, heat, hig
   );
 }
 
-/** Bucket key and label for a time: months for long datasets, days for short ones. */
-function bucketer(meta, tz) {
-  const days = (Date.parse(meta.end) - Date.parse(meta.start)) / 864e5;
-  const daily = days <= 62;
-  const parts = (t) => Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" })
-    .formatToParts(new Date(t)).map((p) => [p.type, p.value]));
-  const key = (t) => { const p = parts(t); return daily ? `${p.year}-${p.month}-${p.day}` : `${p.year}-${p.month}`; };
-  const keys = [];
-  for (let t = Date.parse(meta.start); t < Date.parse(meta.end); t += daily ? 864e5 : 864e5 * 27) {
-    const k = key(t);
-    if (keys[keys.length - 1] !== k) keys.push(k);
-  }
-  const label = (k) => daily ? String(Number(k.slice(8))) : new Date(`${k}-15T12:00:00Z`).toLocaleDateString("en-GB", { month: "short" });
-  const long = (k) => daily ? new Date(`${k}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short" })
-    : new Date(`${k}-15T12:00:00Z`).toLocaleDateString("en-GB", { month: "long", year: "numeric" });
-  return { key, keys, label, long, daily };
-}
-
-/** Incidents per month (or day), stacked by type. Click a bar to filter the list to that period. */
-function PeriodChart({ episodes, b, period, onPick }) {
-  const by = {};
-  for (const e of episodes) {
-    const k = b.key(e.start);
-    (by[k] ||= {})[e.issue_type] = (by[k][e.issue_type] || 0) + 1;
-  }
-  const total = (k) => Object.values(by[k] || {}).reduce((a, c) => a + c, 0);
-  const max = Math.max(1, ...b.keys.map(total));
-  const order = [...TOUR_ORDER, ...new Set(episodes.map((e) => e.issue_type).filter((t) => !TOUR_ORDER.includes(t)))];
-  return (
-    <div className={`pchart${period ? " picked" : ""}`}>
-      {b.keys.map((k, i) => {
-        const n = total(k);
-        const tip = [`${b.long(k)}: ${n} incident${n === 1 ? "" : "s"}`, ...order.filter((t) => by[k]?.[t]).map((t) => `${by[k][t]} × ${issue(t).label}`)].join("\n");
-        return (
-          <button key={k} className="pcol" aria-pressed={period === k} title={tip} onClick={() => onPick(period === k ? null : k)}>
-            <span className="pn">{n || ""}</span>
-            <span className="pbar" style={{ height: `${(n / max) * 100}%` }}>
-              {order.filter((t) => by[k]?.[t]).map((t) => <i key={t} style={{ flex: by[k][t], background: issue(t).color }} />)}
-            </span>
-            <span className="pl">{!b.daily || i % 3 === 0 ? b.label(k) : ""}</span>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
 function Decision({ d, tz }) {
   return (
     <div className="decision">
@@ -164,12 +117,12 @@ function Technical({ e, tz }) {
 function Insight({ ins, active, onMap }) {
   const spatial = ins.rooms && Object.keys(ins.rooms).length > 0;
   return (
-    <div className={`card insight${active ? " active" : ""}`}>
+    <div id={`ins-${ins.insight_id}`} className={`card insight${active ? " active" : ""}`}>
       <div className="ihead">
         <span className={`badge ${ins.target === "PLATO" ? "plato" : "clara"}`}>{ins.target === "PLATO" ? "PLATO · build" : "CLARA · operate"}</span>
         <span className="muted small">{ins.insight_id}{ins.confidence != null ? ` · confidence ${Math.round(ins.confidence * 100)} %` : ""}</span>
         <span className="spacer" />
-        {spatial && <button className="chip" aria-pressed={active} onClick={onMap}>{active ? "Shown on the map" : "Show on the map"}</button>}
+        {spatial && <button className={`chip mapbtn${active ? "" : " primary"}`} aria-pressed={active} onClick={onMap}>{active ? "● Shown on the map" : "Show on the map"}</button>}
       </div>
       <h2>{ins.topic}</h2>
       <div className="finding">{firstSentence(ins.finding)}</div>
@@ -195,10 +148,8 @@ export default function App() {
   const [error, setError] = useState(null);
   const [view, setView] = useState(params.get("view") || (params.get("sel") ? "incidents" : "overview"));
   const [scope, setScope] = useState(params.get("sel") ? "all" : "highlights");
-  const [room, setRoom] = useState(null);
   const [type, setType] = useState(null);
   const [sel, setSel] = useState(params.get("sel"));
-  const [period, setPeriod] = useState(null);
   const [mapInsight, setMapInsight] = useState(null);
   const [target, setTarget] = useState("all");
   // simulated sign-offs by event id, shared by Incidents and Live day; kept in the browser only
@@ -206,7 +157,7 @@ export default function App() {
   const onAnswer = (id, a) => setAnswers((cur) => { const n = { ...cur }; if (a) n[id] = a; else delete n[id]; return n; });
 
   useEffect(() => {
-    setData(null); setError(null); setAnswers({}); setRoom(null); setMapInsight(null); setPeriod(null); setType(null);
+    setData(null); setError(null); setAnswers({}); setMapInsight(null); setType(null);
     if (name !== (params.get("data") || "dev")) setSel(null);
     fetch(`./data/${name}.json`)
       // a dev server answers a missing file with the HTML page, so a parse failure also means "no bundle"
@@ -223,13 +174,10 @@ export default function App() {
   }, [name]);
 
   const tz = data?.meta.local_timezone;
-  const b = data ? bucketer(data.meta, tz) : null;
   const cases = useMemo(() => (data ? featured(data.episodes, data.scorecard?.matched || {}) : []), [data]);
-  const filtered = !!(type || room || period);
-  const inRoom = (e) => !room || e.rooms.includes(room) || e.assets.includes(room);
-  const ofType = (e) => (type ? e.issue_type === type : isIncident(e)); // guest replies only when chosen
-  const shown = !data ? [] : scope === "highlights" && !filtered ? cases
-    : data.episodes.filter((e) => ofType(e) && inRoom(e) && (!period || b.key(e.start) === period));
+  // the list shows one of: a best example per kind, every incident, or one kind (guest replies only when chosen)
+  const shown = !data ? [] : type ? data.episodes.filter((e) => e.issue_type === type)
+    : scope === "highlights" ? cases : data.episodes.filter(isIncident);
   const selected = shown.find((e) => e.id === sel) || data?.episodes.find((e) => e.id === sel) || shown[0] || null;
 
   // arrow keys step through the incident list
@@ -255,10 +203,10 @@ export default function App() {
 
   const go = (v, opts = {}) => {
     setView(v);
-    if (v === "incidents") { setType(opts.type || null); setRoom(null); setPeriod(null); setSel(null); setScope(opts.type ? "all" : "highlights"); }
+    if (v === "incidents") { setType(opts.type || null); setSel(null); setScope(opts.type ? "all" : "highlights"); }
     window.scrollTo(0, 0);
   };
-  const open = (id) => { setSel(id); setScope("all"); setType(null); setRoom(null); setPeriod(null); setView("incidents"); window.scrollTo(0, 0); };
+  const open = (id) => { setSel(id); setScope("all"); setType(null); setView("incidents"); window.scrollTo(0, 0); };
 
   const header = (
     <header className="top">
@@ -278,12 +226,16 @@ export default function App() {
 
   const types = [...new Set(data.episodes.map((e) => e.issue_type))].sort((x, y) => TOUR_ORDER.indexOf(x) - TOUR_ORDER.indexOf(y));
   const count = (pred) => data.episodes.filter(pred).length;
-  const plant = [...new Set(data.episodes.flatMap((e) => e.assets.filter((a) => !e.rooms.includes(a))))];
   const insights = data.insights.filter((i) => target === "all" || i.target === target);
-  const insight = mapInsight != null ? data.insights.find((i) => i.insight_id === mapInsight) : null;
-  const heat = insight ? { rooms: insight.rooms, label: insight.rooms_unit || "" } : null;
+  // findings with a value per room can be drawn on the floor map; the first one is shown from the start
+  const spatial = data.insights.filter((i) => i.rooms && Object.keys(i.rooms).length > 0);
+  const insight = spatial.find((i) => i.insight_id === mapInsight) || spatial[0] || null;
+  const showOnMap = (id) => {
+    setMapInsight(id);
+  };
+  const heat = insight ? { rooms: insight.rooms, label: "" } : null;
   const decided = (e) => { const p = e.decisions.filter((d) => d.autonomy !== "autonomous"); return p.length > 0 && p.every((d) => answers[d.event_id]); };
-  const filter = (fn) => { fn(); setScope("all"); setSel(null); };
+  const pickList = (v) => { setSel(null); setType(v === "highlights" || v === "all" ? null : v); setScope(v === "highlights" ? "highlights" : "all"); };
 
   return (
     <div className="app">
@@ -297,43 +249,24 @@ export default function App() {
         <div className="page">
           <div className="page-head">
             <h1>Incidents</h1>
-            <p>Each case reads the same way: what happened, what Steward noticed, what it decided, who acts or approves, and how success is checked.</p>
+            <p>Pick a case on the left. On the right, every case is told in the same five steps, from what happened to how success is checked.</p>
           </div>
           <div className="inc">
             <div className="card inc-side">
-              <div className="rowhead">
-                <Seg value={scope === "highlights" && !filtered ? "highlights" : "all"}
-                  onChange={(v) => { setScope(v); setSel(null); if (v === "highlights") { setType(null); setRoom(null); setPeriod(null); } }}
-                  options={[["highlights", "Highlights"], ["all", `All ${count(isIncident)}`]]} />
-                <span className="muted small">{shown.length} shown · ← → to step</span>
-              </div>
-              <div className="stackcol" style={{ gap: 10 }}>
-                <div className="filters">
-                  {types.map((t) => (
-                    <button key={t} className="chip" aria-pressed={type === t} onClick={() => filter(() => setType(type === t ? null : t))}>
-                      <i className="swatch" style={{ background: issue(t).color, margin: 0 }} />{issue(t).label} <b>{count((e) => e.issue_type === t)}</b>
-                    </button>
-                  ))}
-                  {room && <button className="chip" aria-pressed="true" onClick={() => setRoom(null)}>{nice(room)} ✕</button>}
-                  {period && <button className="chip" aria-pressed="true" onClick={() => setPeriod(null)}>{b.long(period)} ✕</button>}
+              <div className="eyebrow">1 · Pick a case</div>
+              <div>
+                <select className="pick" value={type || scope} onChange={(ev) => pickList(ev.target.value)} aria-label="Which cases to list">
+                  <option value="highlights">Best example of each kind ({cases.length})</option>
+                  <option value="all">Every incident ({count(isIncident)})</option>
+                  <optgroup label="One kind only">
+                    {types.map((t) => <option key={t} value={t}>{issue(t).label} ({count((e) => e.issue_type === t)})</option>)}
+                  </optgroup>
+                </select>
+                <div className="muted small" style={{ marginTop: 6 }}>
+                  {type ? `${shown.length} cases, oldest first.` : scope === "highlights" ? "One representative case for each kind of situation." : `${shown.length} cases, oldest first.`} Use ↑ ↓ to step through.
                 </div>
-                <details className="more filterbox">
-                  <summary>Filter by room or time</summary>
-                  <FloorMap rooms={data.rooms} episodes={data.episodes.filter(ofType)} selectedRoom={room} onRoom={(r) => filter(() => setRoom(r))} />
-                  {plant.length > 0 && (
-                    <div className="plant">
-                      {plant.map((a) => (
-                        <button key={a} className="chip" title={a} aria-pressed={room === a} onClick={() => filter(() => setRoom(room === a ? null : a))}>
-                          {nice(a)} <b>{count((e) => e.assets.includes(a))}</b>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  <h3>Incidents {b.daily ? "per day" : "per month"} (click a bar)</h3>
-                  <PeriodChart episodes={data.episodes.filter((e) => ofType(e) && inRoom(e))} b={b} period={period} onPick={(k) => filter(() => setPeriod(k))} />
-                </details>
               </div>
-              {shown.length === 0 ? <div className="empty">No incidents match these filters.</div> : (
+              {shown.length === 0 ? <div className="empty">No cases of this kind.</div> : (
                 <div className="list">
                   {shown.map((e) => (
                     <button key={e.id} id={`inc-${e.id}`} className="item" aria-pressed={selected?.id === e.id} onClick={() => setSel(e.id)}>
@@ -344,6 +277,7 @@ export default function App() {
                   ))}
                 </div>
               )}
+              <div className="keyline"><span><i className="swatch" style={{ background: "var(--good)" }} />Steward acted on its own</span><span><i className="swatch" style={{ background: "var(--warning)" }} />waits for a person</span></div>
             </div>
             {selected
               ? <IncidentStory key={selected.id} e={selected} tz={tz} outcome={data.scorecard?.matched?.[selected.id]} Technical={Technical} answers={answers} onAnswer={onAnswer}
@@ -362,15 +296,20 @@ export default function App() {
           {data.insights.length === 0 ? <div className="card empty">No findings in this dataset. They are computed from the full dev year; switch the dataset at the top right.</div> : (
             <div className="lessons">
               <div className="card side">
-                <h2>{insight ? insight.topic : "Where it shows in the building"}</h2>
-                <FloorMap rooms={data.rooms} heat={heat} />
-                {!insight && <div className="muted small" style={{ marginTop: 8 }}>Choose "Show on the map" on a finding to see it room by room.</div>}
+                <div className="eyebrow">On the map now</div>
+                {!insight ? <div className="empty small">No finding in this dataset has a value per room.</div> : (
+                  <>
+                    <h2 className="maptitle">{insight.topic}</h2>
+                    <div className="muted small" style={{ marginBottom: 12 }}>Each room shows: {insight.rooms_unit || "value per room"}. Darker means higher. Use "Show on the map" on a finding to change it.</div>
+                    <FloorMap rooms={data.rooms} heat={heat} />
+                  </>
+                )}
               </div>
               <div className="stackcol">
                 <Seg value={target} onChange={setTarget} options={[["all", `All ${data.insights.length}`], ["PLATO", "PLATO · build"], ["CLARA", "CLARA · operate"]]} />
                 {insights.map((ins) => (
-                  <Insight key={ins.insight_id} ins={ins} active={mapInsight === ins.insight_id}
-                    onMap={() => setMapInsight(mapInsight === ins.insight_id ? null : ins.insight_id)} />
+                  <Insight key={ins.insight_id} ins={ins} active={insight?.insight_id === ins.insight_id}
+                    onMap={() => { showOnMap(ins.insight_id); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
                 ))}
               </div>
             </div>
