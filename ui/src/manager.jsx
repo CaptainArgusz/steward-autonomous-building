@@ -2,6 +2,9 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { issue } from "./util.js";
 import { action, agentFor, firstSentence, friendly, cap, headline, light, localDayMinute, name } from "./plain.js";
 import { Approval, Light } from "./story.jsx";
+import { firstMajorFloor, PRIORITY } from "./live3d/timeline.js";
+
+const LiveFloor3D = React.lazy(() => import("./live3d/LiveFloor3D.jsx"));
 
 const STATE = {
   o: { label: "Guest in room", cls: "s-o" },
@@ -18,11 +21,9 @@ const longDay = (k) => new Date(`${k}T12:00:00Z`).toLocaleDateString("en-GB", { 
 const shortDay = (k) => new Date(`${k}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
 
 /**
- * Building at one moment: each room coloured by its state, with a bell if something waits for the
- * manager. ``tilt`` draws the same floors as a stacked, tilted view (CSS only, no 3D model).
+ * Practical 2D building map for one floor. The 3D scene is the default Live Day view.
  */
-function LiveMap({ rooms, states, slot, bells, onRoom, tilt }) {
-  const floors = [...new Set(rooms.map((r) => r.floor))].sort((a, b) => b - a);
+function LiveMap({ rooms, states, slot, bells, onRoom, floor }) {
   const cell = (r) => {
     const s = (states?.[r.id] || "")[slot] || "?";
     return (
@@ -32,8 +33,8 @@ function LiveMap({ rooms, states, slot, bells, onRoom, tilt }) {
       </button>
     );
   };
-  const rowsOf = (f) => {
-    const on = rooms.filter((r) => r.floor === f).sort((a, b) => a.id.localeCompare(b.id));
+  const rowsOf = () => {
+    const on = rooms.filter((r) => r.floor === floor).sort((a, b) => a.id.localeCompare(b.id));
     return (
       <div className="rows">
         <div className="row">{on.filter((r) => r.orientation === "N").map(cell)}</div>
@@ -48,33 +49,28 @@ function LiveMap({ rooms, states, slot, bells, onRoom, tilt }) {
       <span>🔔 waits for you</span>
     </div>
   );
-  if (tilt)
-    return (
-      <div>
-        <div className="iso-wrap">
-          <div className="iso">
-            {[...floors].reverse().map((f, i) => (
-              <div className="iso-floor" key={f} style={{ transform: `translateZ(${i * 150}px)` }}>
-                <span className="iso-label">Floor {f}</span>
-                {rowsOf(f)}
-              </div>
-            ))}
-          </div>
-        </div>
-        {legend}
-      </div>
-    );
   return (
     <div className="bmap">
-      {floors.map((f) => (
-        <div className="floor" key={f}>
-          <div className="floor-label"><b>{f}</b><span>floor</span></div>
-          {rowsOf(f)}
-        </div>
-      ))}
+      <div className="floor">
+        <div className="floor-label"><b>{floor}</b><span>floor</span></div>
+        {rowsOf()}
+      </div>
       {legend}
     </div>
   );
+}
+
+function zonedInstant(day, minute, tz) {
+  const [year, month, date] = day.split("-").map(Number);
+  const hour = Math.floor(minute / 60), min = minute % 60;
+  let utc = Date.UTC(year, month - 1, date, hour, min);
+  const formatter = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+  for (let i = 0; i < 2; i += 1) {
+    const p = Object.fromEntries(formatter.formatToParts(new Date(utc)).map((x) => [x.type, x.value]));
+    const shown = Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day), Number(p.hour), Number(p.minute));
+    utc -= shown - Date.UTC(year, month - 1, date, hour, min);
+  }
+  return utc;
 }
 
 /** "Live day": what one person running the hotel sees, replayed through a chosen day. */
@@ -96,24 +92,40 @@ export function Manager({ data, tz, onOpen, answers, onAnswer }) {
   }, [all]);
   const busy = useMemo(() => Object.entries(score).sort((a, b) => b[1][0] - a[1][0] || b[1][1] - a[1][1]).slice(0, 5).map(([k]) => k), [score]);
 
-  const [day, setDay] = useState(busy[0] || days[0]);
+  const initialDay = busy[0] || days[0];
+  const [day, setDay] = useState(initialDay);
   const startAt = (() => {
     const m = /^(\d{1,2}):(\d{2})$/.exec(new URLSearchParams(location.search).get("t") || "");
     return m ? Number(m[1]) * 60 + Math.floor(Number(m[2]) / 15) * 15 : 6 * 60;
   })();
   const [minute, setMinute] = useState(startAt);
   const [playing, setPlaying] = useState(false);
-  const [tilt, setTilt] = useState(new URLSearchParams(location.search).get("map") === "3d");
+  const [view3d, setView3d] = useState(new URLSearchParams(location.search).get("map") !== "2d");
+  const [floor, setFloor] = useState(firstMajorFloor(data.days?.[initialDay]));
+  const [followNotice, setFollowNotice] = useState(null);
+  const [webglFailed, setWebglFailed] = useState(false);
   const [speed, setSpeed] = useState(1);  // 1x = a quarter hour every 0.8 s, about a minute for a full day
   const [toasts, setToasts] = useState([]);
   const last = useRef(minute);
-  const pick = (k) => { if (!days.includes(k)) return; setDay(k); setMinute(6 * 60); setPlaying(false); };
+  const replayLoaded = useRef(Boolean(data.days));
+  const pick = (k) => {
+    if (!days.includes(k)) return;
+    setDay(k); setMinute(6 * 60); setPlaying(false); setFloor(firstMajorFloor(data.days?.[k]));
+    setFollowNotice(null);
+  };
 
   const first = useRef(true);
   useEffect(() => {
     if (first.current) { first.current = false; return; }  // keep a start time given in the URL
+    replayLoaded.current = Boolean(data.days);
     pick(busy[0] || days[0]);
   }, [data.meta.profile]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (data.days && !replayLoaded.current) {
+      replayLoaded.current = true;
+      setFloor(firstMajorFloor(data.days[day]));
+    }
+  }, [data.days, day]);
   useEffect(() => {
     if (!playing) return undefined;
     const t = setInterval(() => setMinute((m) => Math.min(m + 15, END)), 800 / speed);
@@ -150,6 +162,34 @@ export function Manager({ data, tz, onOpen, answers, onAnswer }) {
   const absent = cleaners.filter((s) => s.status !== "scheduled" && knownNow(s));
   const robots = info.staff.filter((s) => s.role === "robot" && (s.status === "scheduled" || !knownNow(s)));
   const di = days.indexOf(day);
+  const now = zonedInstant(day, minute, tz);
+  const floorRooms = data.rooms.filter((r) => r.floor === floor);
+  const actors = (info.actors || []).filter((x) => x.floor === floor);
+  const effects = (info.effects || []).filter((x) => x.floor === floor);
+
+  const followed = useRef(new Set());
+  const lastFloorMinute = useRef({ day, minute });
+  const followTimer = useRef();
+  useEffect(() => () => clearTimeout(followTimer.current), []);
+  useEffect(() => {
+    const previous = lastFloorMinute.current;
+    lastFloorMinute.current = { day, minute };
+    if (!playing || previous.day !== day || minute < previous.minute) return;
+    const fresh = (info.effects || []).filter((e) => {
+      if (!e.major || followed.current.has(e.episode_id)) return false;
+      const point = at(e.start_utc);
+      return point.day === day && point.minute > previous.minute && point.minute <= minute;
+    }).sort((a, b) => (PRIORITY[b.priority] || 0) - (PRIORITY[a.priority] || 0)
+      || Date.parse(a.start_utc) - Date.parse(b.start_utc) || a.id.localeCompare(b.id));
+    if (!fresh.length) return;
+    const event = fresh[0];
+    followed.current.add(event.episode_id);
+    setFloor(event.floor);
+    setFollowNotice(`Following major event · ${event.headline}`);
+    clearTimeout(followTimer.current);
+    followTimer.current = setTimeout(() => setFollowNotice(null), 4200);
+    return undefined;
+  }, [day, minute, playing]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="manager">
@@ -214,14 +254,37 @@ export function Manager({ data, tz, onOpen, answers, onAnswer }) {
       <div className="mgr-grid">
         <div className="card">
           <div className="rowhead">
-            <h2>Building at {hhmm(minute)}</h2>
-            <div className="seg" role="group">
-              <button aria-pressed={!tilt} onClick={() => setTilt(false)}>Floor plan</button>
-              <button aria-pressed={tilt} onClick={() => setTilt(true)}>3D view</button>
+            <div><h2>Building at {hhmm(minute)}</h2><span className="muted small">Floor {floor}</span></div>
+            <div className="map-controls">
+              <label className="floor-select">
+                <span>Viewing floor</span>
+                <select value={floor} onChange={(event) => setFloor(Number(event.target.value))} aria-label="Select floor">
+                  {[1, 2, 3, 4].map((n) => <option key={n} value={n}>Floor {n}</option>)}
+                </select>
+              </label>
+              <div className="seg" role="group" aria-label="Map style">
+                <button aria-pressed={view3d} onClick={() => setView3d(true)}>3D</button>
+                <button aria-pressed={!view3d} onClick={() => setView3d(false)}>2D</button>
+              </div>
             </div>
           </div>
-          <LiveMap rooms={data.rooms} states={info.rooms} slot={slot} bells={bells} tilt={tilt}
-            onRoom={(r) => { const x = sofar.filter((y) => y.e.rooms.includes(r)).pop(); if (x) onOpen(x.e.id); }} />
+          {followNotice && <div className="follow-notice">{followNotice}</div>}
+          {webglFailed && <div className="muted small webgl-note">3D view is unavailable in this browser; showing the floor plan.</div>}
+          {view3d ? (
+            <React.Suspense fallback={<div className="live3d loading">Preparing the 3D floor…</div>}>
+              <LiveFloor3D rooms={floorRooms} states={info.rooms} slot={slot} actors={actors} effects={effects} now={now}
+                onFailure={() => setWebglFailed(true)}
+                fallback={<LiveMap rooms={data.rooms} states={info.rooms} slot={slot} bells={bells} floor={floor}
+                  onRoom={(r) => { const x = sofar.filter((y) => y.e.rooms.includes(r)).pop(); if (x) onOpen(x.e.id); }} />} />
+            </React.Suspense>
+          ) : (
+            <LiveMap rooms={data.rooms} states={info.rooms} slot={slot} bells={bells} floor={floor}
+              onRoom={(r) => { const x = sofar.filter((y) => y.e.rooms.includes(r)).pop(); if (x) onOpen(x.e.id); }} />
+          )}
+          <div className="legend live3d-legend">
+            {["o", "d", "c", "r"].map((k) => <span key={k}><i className={`swatch ${STATE[k].cls}`} />{STATE[k].label}</span>)}
+            <span><i className="actor-key robot" />Robot</span><span><i className="actor-key cleaner" />Cleaner</span><span>◎ active incident</span>
+          </div>
         </div>
 
         <div className="mgr-side">

@@ -368,6 +368,206 @@ def _days(ds: Dataset) -> dict:
     return days
 
 
+def _task_intervals(
+    ds: Dataset,
+) -> dict[tuple[str, str, str], list[tuple[pd.Timestamp, pd.Timestamp]]]:
+    """Recorded cleaner/robot intervals, keyed by (role, room, resource)."""
+    kinds = {
+        "cleaner": ("cleaning_started", "cleaning_completed"),
+        "robot": ("robot_floor_cleaning_started", "robot_floor_cleaning_completed"),
+    }
+    out: dict[tuple[str, str, str], list[tuple[pd.Timestamp, pd.Timestamp]]] = defaultdict(list)
+    events = ds.events.dropna(subset=["room_id", "resource_id"]).sort_values("timestamp_utc")
+    for role, (started, completed) in kinds.items():
+        selected = events[events["type"].isin([started, completed])]
+        for (room, resource), rows in selected.groupby(["room_id", "resource_id"], sort=False):
+            open_at: pd.Timestamp | None = None
+            for row in rows.itertuples():
+                if row.type == started:
+                    open_at = row.timestamp_utc
+                elif open_at is not None and row.timestamp_utc >= open_at:
+                    out[(role, str(room), str(resource))].append((open_at, row.timestamp_utc))
+                    open_at = None
+    return out
+
+
+def _local_day(ts: pd.Timestamp, tz) -> str:
+    return ts.tz_convert(tz).strftime("%Y-%m-%d")
+
+
+def _day_end(day: str, tz) -> pd.Timestamp:
+    return (pd.Timestamp(day) + pd.Timedelta(days=1)).tz_localize(tz).tz_convert("UTC")
+
+
+def _headline(reason: str) -> str:
+    return reason.split(". ", 1)[0].rstrip(".")
+
+
+def _effect_kind(issue: str, assets: list[str]) -> str | None:
+    if issue == "water_leak":
+        return "water"
+    if issue == "heating_comfort":
+        return "heating"
+    if issue in ("room_turnaround", "occupancy_surge"):
+        return "turnaround"
+    if issue == "ventilation_maintenance" and any(a.startswith("GW_F") for a in assets):
+        return "sensor"
+    return None
+
+
+def _effect_floor(ds: Dataset, assets: list[str]) -> tuple[str | None, int | None]:
+    room = next((a for a in assets if a in ds.room_ids), None)
+    if room:
+        floor = next(int(r["floor"]) for r in ds.building["building"]["rooms"] if r["id"] == room)
+        return room, floor
+    gateway = next((a for a in assets if re.fullmatch(r"GW_F[1-4]", a)), None)
+    return (None, int(gateway[-1])) if gateway else (None, None)
+
+
+def _activity(ds: Dataset, decisions: list[Decision]) -> dict[str, dict[str, list[dict]]]:
+    """Compact actor/effect timelines for the Live Day 3D replay."""
+    tz = ds.local_tz
+    status = {row["event_id"]: row["status"] for row in executor.execute(decisions, ds)}
+    intervals = _task_intervals(ds)
+    room_floor = {r["id"]: int(r["floor"]) for r in ds.building["building"]["rooms"]}
+    cleaning_by_room: dict[str, list[tuple[pd.Timestamp, pd.Timestamp]]] = defaultdict(list)
+    for (role, room, _resource), pairs in intervals.items():
+        if role == "cleaner":
+            cleaning_by_room[room].extend(pairs)
+    matched_intervals: set[tuple] = set()
+    activity: dict[str, dict[str, list[dict]]] = defaultdict(lambda: {"actors": [], "effects": []})
+
+    for d in decisions:
+        at = pd.Timestamp(d.timestamp_utc)
+        assets = list(d.affected_assets)
+        room, floor = _effect_floor(ds, assets)
+        day = _local_day(at, tz)
+
+        if (
+            d.action in ("dispatch_robot", "schedule_cleaning")
+            and room
+            and d.resource_id
+            and status[d.event_id] == "executed_simulated"
+        ):
+            role = "robot" if d.action == "dispatch_robot" else "cleaner"
+            matches = [
+                pair
+                for pair in intervals.get((role, room, d.resource_id), [])
+                if pair[0] >= at and pair[0] < _day_end(day, tz)
+            ]
+            recorded = min(matches, default=None, key=lambda pair: pair[0])
+            if recorded:
+                matched_intervals.add((role, room, d.resource_id, recorded[0], recorded[1]))
+            task_start = recorded[0] if recorded else at
+            task_end = recorded[1] if recorded else at + pd.Timedelta(minutes=30)
+            activity[day]["actors"].append(
+                {
+                    "id": d.event_id,
+                    "episode_id": d.episode_id or d.event_id,
+                    "resource_id": d.resource_id,
+                    "role": role,
+                    "room_id": room,
+                    "floor": floor,
+                    "action": d.action,
+                    "status": status[d.event_id],
+                    "depart_utc": utc_z(at),
+                    "task_start_utc": utc_z(task_start),
+                    "task_end_utc": utc_z(task_end),
+                    "duration_source": "recorded_events" if recorded else "fallback_30m",
+                }
+            )
+
+        kind = _effect_kind(d.issue_type, assets)
+        if kind and floor is not None:
+            is_major = (
+                d.priority == "critical"
+                or d.requires_human_approval
+                or bool(d.requires_guest_consent)
+                or (kind in ("water", "heating") and d.priority == "high")
+                or kind == "sensor"
+            )
+            effect_end = _day_end(day, tz)
+            if kind == "turnaround" and room:
+                completions = [
+                    end
+                    for start, end in cleaning_by_room.get(room, [])
+                    if start >= at and start < effect_end
+                ]
+                effect_end = min(
+                    min(completions) if completions else at + pd.Timedelta(hours=2), effect_end
+                )
+            activity[day]["effects"].append(
+                {
+                    "id": d.event_id,
+                    "episode_id": d.episode_id or d.event_id,
+                    "kind": kind,
+                    "room_id": room,
+                    "floor": floor,
+                    "priority": d.priority,
+                    "requires_human_approval": d.requires_human_approval,
+                    "major": is_major,
+                    "start_utc": utc_z(at),
+                    "end_utc": utc_z(effect_end),
+                    "headline": _headline(d.reason),
+                }
+            )
+
+    # Recorded work keeps an ordinary day alive even when Steward did not need to intervene.
+    # Decision-linked intervals above win; the remaining intervals become neutral replay actors.
+    for (role, room, resource), pairs in intervals.items():
+        if room not in room_floor:
+            continue
+        for start, end in pairs:
+            if (role, room, resource, start, end) in matched_intervals:
+                continue
+            day = _local_day(start, tz)
+            stamp = start.strftime("%Y%m%dT%H%M")
+            activity[day]["actors"].append(
+                {
+                    "id": f"recorded:{role}:{room}:{resource}:{stamp}",
+                    "episode_id": f"recorded:{role}:{room}:{stamp}",
+                    "resource_id": resource,
+                    "role": role,
+                    "room_id": room,
+                    "floor": room_floor[room],
+                    "action": "recorded_cleaning",
+                    "status": "recorded_event",
+                    "depart_utc": utc_z(start),
+                    "task_start_utc": utc_z(start),
+                    "task_end_utc": utc_z(end),
+                    "duration_source": "recorded_events",
+                }
+            )
+
+    for info in activity.values():
+        info["actors"].sort(key=lambda x: (x["depart_utc"], x["id"]))
+        merged: dict[tuple, dict] = {}
+        for effect in info["effects"]:
+            key = (
+                effect["kind"],
+                effect["floor"],
+                effect["room_id"],
+            )
+            current = merged.get(key)
+            if current is None:
+                current = effect.copy()
+                location = effect["room_id"] or f"F{effect['floor']}"
+                current["id"] = f"visual:{effect['kind']}:{location}:{effect['start_utc'][:10]}"
+                merged[key] = current
+                continue
+            if PRIORITY_RANK[effect["priority"]] < PRIORITY_RANK[current["priority"]]:
+                current["priority"] = effect["priority"]
+                current["headline"] = effect["headline"]
+            current["major"] = current["major"] or effect["major"]
+            current["requires_human_approval"] = (
+                current["requires_human_approval"] or effect["requires_human_approval"]
+            )
+            current["start_utc"] = min(current["start_utc"], effect["start_utc"])
+            current["end_utc"] = max(current["end_utc"], effect["end_utc"])
+        info["effects"] = sorted(merged.values(), key=lambda x: (x["start_utc"], x["id"]))
+    return activity
+
+
 def _jsonl(path: Path) -> list[dict]:
     if not path.is_file():
         return []
@@ -413,10 +613,18 @@ def build(
     }
 
 
-def build_days(data_dir: str | Path) -> dict:
+def build_days(data_dir: str | Path, decisions: list[Decision] | str | Path | None = None) -> dict:
     """Room states and staff per day for the replay clock, kept in a separate file so the
     main bundle keeps its format."""
-    return {"days": _days(Dataset(data_dir))}
+    ds = Dataset(data_dir)
+    days = _days(ds)
+    if decisions is not None:
+        if not isinstance(decisions, list):
+            decisions = validate_file(decisions, ds).decisions
+        for day, extra in _activity(ds, decisions).items():
+            days.setdefault(day, {"rooms": {}, "staff": [], "arrivals": 0, "departures": 0})
+            days[day].update(extra)
+    return {"days": days}
 
 
 def write(bundle: dict, out: str | Path) -> None:
