@@ -1,5 +1,7 @@
 # Steward — an autonomous operator for the PLATO-40 building
 
+DEMO link: https://drive.google.com/drive/folders/1yZ5IToFAHY-1f-i2q1rAofpZolHiRMMy?usp=drive_link
+
 proximata Hackathon '26 · Rhomberg track · "PLATO × CLARA Future — The Autonomous Building"
 
 Steward replays a year of operating data from **PLATO-40**, a fictional 40-room self-check-in
