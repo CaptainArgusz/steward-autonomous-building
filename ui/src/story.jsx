@@ -1,13 +1,36 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { LineChart } from "./charts.jsx";
 import { fmtTime, issue } from "./util.js";
-import { action, agentFor, cap, evidence, firstSentence, friendly, headline, isIncident, light, name, problem } from "./plain.js";
+import { action, agentFor, cap, evidence, firstSentence, friendly, headline, light, name, problem } from "./plain.js";
 
 const uniq = (xs) => [...new Set(xs.filter(Boolean))];
 
 export function Light({ autonomy, short = false }) {
   const l = light(autonomy);
   return <span className={`light ${l.cls}`} title={l.note}>{short ? l.short : l.label}</span>;
+}
+
+/**
+ * Approve / reject for one decision. The answer is kept in the browser only: it is a simulated
+ * sign-off, nothing is sent and the replay does not change. Automatic actions are acknowledged.
+ */
+export function Approval({ d, answers, onAnswer }) {
+  const a = answers?.[d.event_id];
+  if (a)
+    return (
+      <span className={`answer ${a}`}>
+        {a === "approved" ? "✓ Approved" : a === "rejected" ? "✕ Rejected" : "✓ Acknowledged"} (simulated)
+        <button className="link" onClick={() => onAnswer(d.event_id, null)}>Undo</button>
+      </span>
+    );
+  if (d.autonomy === "autonomous")
+    return <button className="chip primary" onClick={() => onAnswer(d.event_id, "seen")}>Acknowledge</button>;
+  return (
+    <>
+      <button className="chip primary" onClick={() => onAnswer(d.event_id, "approved")}>Approve</button>
+      <button className="chip" onClick={() => onAnswer(d.event_id, "rejected")}>Reject</button>
+    </>
+  );
 }
 
 export const STEPS = [
@@ -62,7 +85,7 @@ function More({ items, limit, render }) {
 const chartTitle = (t, tz) => cap(friendly((t || "").replace(/\bfill_pct\b/, "fill level"), tz));
 
 /** Content of one step. Short by default; details behind "Show more". */
-export function StepBody({ k, e, tz, outcome, big = false }) {
+export function StepBody({ k, e, tz, outcome, big = false, answers, onAnswer }) {
   const p = parts(e, tz);
   const marks = p.decisions.map((d) => d.timestamp_utc);
   if (k === 0)
@@ -117,6 +140,18 @@ export function StepBody({ k, e, tz, outcome, big = false }) {
             <ul className="plain">{xs.map((x, i) => <li key={i}>{x}</li>)}</ul>
           </div>
         ))}
+        {onAnswer && p.decisions.some((d) => d.autonomy !== "autonomous") && (
+          <div className="signoff">
+            <b>Your decision</b>
+            <div className="muted small">Simulated sign-off: nothing is sent and the replay does not change.</div>
+            {p.decisions.filter((d) => d.autonomy !== "autonomous").map((d) => (
+              <div className="signrow" key={d.event_id}>
+                <span>{action(d.action).icon} <b>{action(d.action).label}</b>{d.resource_id ? ` · ${name(d.resource_id)}` : ""}<span className="muted small"> · {fmtTime(d.timestamp_utc, tz)}{d.autonomy === "approval_and_consent" ? " · guest consent also needed" : ""}</span></span>
+                <span className="ask-btns"><Approval d={d} answers={answers} onAnswer={onAnswer} /></span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     );
   return (
@@ -131,20 +166,26 @@ export function StepBody({ k, e, tz, outcome, big = false }) {
   );
 }
 
-/** Explore view: all five steps of one incident, compact. */
-export function IncidentStory({ e, tz, outcome, Technical }) {
+/** One incident told in five steps; raw decisions and events stay behind a disclosure. */
+export function IncidentStory({ e, tz, outcome, Technical, locator, answers, onAnswer }) {
   const [tech, setTech] = useState(false);
   return (
     <div className="card story">
-      <div className="story-head">
-        <span className="type-pill" style={{ background: issue(e.issue_type).color }}>{issue(e.issue_type).label}</span>
-        <span className="muted small">{e.priority} priority · {fmtTime(e.start, tz)}{e.end !== e.start ? ` → ${fmtTime(e.end, tz)}` : ""}</span>
+      <div className="story-top">
+        <div>
+          <div className="story-head">
+            <span className="type-pill" style={{ background: issue(e.issue_type).color }}>{issue(e.issue_type).label}</span>
+            <span className={`badge p-${e.priority}`}>{e.priority} priority</span>
+            <span className="muted small">{fmtTime(e.start, tz)}{e.end !== e.start ? ` → ${fmtTime(e.end, tz)}` : ""}</span>
+          </div>
+          <h2 className="story-title">{headline(e)}</h2>
+        </div>
+        {locator && <div className="mini"><div className="cap">Where in the building</div>{locator}</div>}
       </div>
-      <h2 className="story-title">{headline(e)}</h2>
       {STEPS.map((t, k) => (
         <section className="step" key={k}>
           <div className="num">{k + 1}</div>
-          <div className="body"><h3>{t}</h3><StepBody k={k} e={e} tz={tz} outcome={outcome} /></div>
+          <div className="body"><h3>{t}</h3><StepBody k={k} e={e} tz={tz} outcome={outcome} answers={answers} onAnswer={onAnswer} /></div>
         </section>
       ))}
       {Technical && (
@@ -153,101 +194,6 @@ export function IncidentStory({ e, tz, outcome, Technical }) {
           {tech && <Technical e={e} tz={tz} />}
         </div>
       )}
-    </div>
-  );
-}
-
-const span = (meta) => {
-  const days = Math.round((Date.parse(meta.end) - Date.parse(meta.start)) / 864e5);
-  return days >= 360 ? "One year" : `${days} days`;
-};
-
-/** Presentation mode: full width, one case and one step at a time. */
-export function Presentation({ data, cases, tz, Map, onExplore }) {
-  const [idx, setIdx] = useState(0);
-  const [step, setStep] = useState(0);
-  useEffect(() => { setIdx(0); setStep(0); }, [data.meta.profile]);
-  const e = cases[Math.min(idx, cases.length - 1)];
-  const go = (i, s = 0) => { setIdx(i); setStep(s); };
-  const next = () => (step < STEPS.length - 1 ? setStep(step + 1) : idx < cases.length - 1 && go(idx + 1));
-  const back = () => (step > 0 ? setStep(step - 1) : idx > 0 && go(idx - 1, STEPS.length - 1));
-  useEffect(() => {
-    const onKey = (ev) => {
-      if (ev.target.closest && ev.target.closest("input, textarea")) return;
-      if (ev.key === "ArrowRight") next();
-      if (ev.key === "ArrowLeft") back();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  });
-
-  const all = data.episodes.flatMap((x) => x.decisions);
-  const auto = all.filter((d) => d.autonomy === "autonomous").length;
-  const human = all.length - auto;
-  if (!e) return <div className="present"><div className="card empty">No incidents in this dataset.</div></div>;
-  const outcome = data.scorecard?.matched?.[e.id];
-  const equipment = e.assets.filter((a) => !e.rooms.includes(a));
-
-  return (
-    <div className="present">
-      <div className="intro">
-        <div>
-          <h2>{span(data.meta)} of PLATO-40, run by Steward</h2>
-          <div className="muted">A replay of a synthetic 40-room hotel. Every action is simulated: nothing was switched and no message was sent.</div>
-        </div>
-        <div className="nums">
-          <div><b>{data.episodes.filter(isIncident).length}</b><span>incidents</span></div>
-          <div className="go"><b>{auto}</b><span>done automatically</span></div>
-          <div className="wait"><b>{human}</b><span>sent to a human</span></div>
-          <div><b>{data.dismissed.length}</b><span>false alarms avoided</span></div>
-        </div>
-      </div>
-
-      <div className="cases">
-        {cases.map((c, i) => (
-          <button key={c.id} className="case-tab" aria-pressed={i === idx} onClick={() => go(i)}>
-            <i style={{ background: issue(c.issue_type).color }} />{issue(c.issue_type).label}
-          </button>
-        ))}
-      </div>
-
-      <div className="card stage">
-        <aside>
-          <span className="type-pill" style={{ background: issue(e.issue_type).color }}>{issue(e.issue_type).label}</span>
-          <h2 className="story-title">{headline(e)}</h2>
-          <div className="muted small">{fmtTime(e.start, tz)} · {e.priority} priority</div>
-          {e.rooms.length > 0 ? (
-            <div className="mini"><Map highlight={e.rooms} /></div>
-          ) : (
-            <div className="involved">
-              <div className="muted small">Involved</div>
-              {equipment.map((a) => <span key={a} className="chip">{name(a)}</span>)}
-            </div>
-          )}
-          <button className="link" onClick={() => onExplore(e.id)}>Open this incident in Explore →</button>
-        </aside>
-
-        <div className="steps">
-          <ol className="stepbar">
-            {STEPS.map((t, k) => (
-              <li key={k} className={k === step ? "now" : k < step ? "done" : ""}>
-                <button onClick={() => setStep(k)}><span className="num">{k + 1}</span><span className="t">{t}</span></button>
-              </li>
-            ))}
-          </ol>
-          <div className="stepbody">
-            <h3>{STEPS[step]}</h3>
-            <StepBody k={step} e={e} tz={tz} outcome={outcome} big />
-          </div>
-          <div className="stepnav">
-            <button className="chip" onClick={back} disabled={idx === 0 && step === 0}>← Back</button>
-            <span className="muted small">Case {idx + 1} of {cases.length} · step {step + 1} of {STEPS.length} · arrow keys work too</span>
-            <button className="chip primary" onClick={next} disabled={idx === cases.length - 1 && step === STEPS.length - 1}>
-              {step < STEPS.length - 1 ? "Next step →" : "Next case →"}
-            </button>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
